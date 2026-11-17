@@ -1,6 +1,8 @@
 # SOLMAR
 
-[![make.fun](https://make.fun/bounty/gta6-01)](https://make.fun/bounty/gta6-01)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/Zer1332/gta6/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/Zer1332/gta6/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 SOLMAR adalah game open-world crime 3D orisinal yang berlatar di kota fiksi Solmar, kota pesisir yang disinari matahari dengan gedung pencakar langit, marina, dan jalan-jalan sibuk. Kamu bermain sebagai Rook, seorang supir kabur yang mencoba membangun kembali namanya setelah satu pekerjaan terakhir yang gagal — dengan bantuan Mara Solano, seorang fixer yang mengatur tiga misi berbahaya: kabur dari kejaran polisi, mengantar paket rahasia melewati kota, dan merebut wilayah dari geng saingan. Semua karakter, nama, cerita, seni, dan suara dibuat sendiri dari nol, tanpa aset atau nama dari game lain.
 
