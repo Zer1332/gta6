@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOLMAR — Streets of Solmar</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1420; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #f5f1e6; display: none; }
+  .panel { position: absolute; background: rgba(12, 18, 28, 0.72); border-radius: 10px; padding: 8px 12px; }
+  #hud-cash { top: 14px; left: 14px; font-size: 26px; font-weight: 800; color: #f2c94c; }
+  #hud-right { top: 14px; right: 14px; text-align: right; }
+  #hud-stars { font-size: 24px; letter-spacing: 2px; }
+  #hud-clock { font-size: 18px; color: #c9c2ae; }
+  #hud-objective { top: 14px; left: 50%; transform: translateX(-50%); max-width: 560px; text-align: center; font-size: 17px; font-weight: 600; }
+  #hud-objective small { display: block; font-size: 12px; color: #c9c2ae; font-weight: 400; margin-top: 2px; }
+  #hud-prompt { bottom: 150px; left: 50%; transform: translateX(-50%); font-size: 18px; background: rgba(12, 18, 28, 0.8); padding: 8px 16px; border-radius: 8px; display: none; }
+  #hud-health { bottom: 18px; left: 248px; width: 200px; }
+  #hud-health .label { font-size: 12px; color: #c9c2ae; margin-bottom: 4px; }
+  #hud-health-bar { height: 12px; background: rgba(255,255,255,0.18); border-radius: 6px; overflow: hidden; }
+  #hud-health-fill { height: 100%; width: 100%; background: #58c96b; }
+  #hud-speed { bottom: 18px; right: 18px; font-size: 26px; font-weight: 800; }
+  #minimap { position: absolute; bottom: 14px; left: 14px; border: 2px solid rgba(245,241,230,0.65); border-radius: 8px; background: #20262e; }
+  #hud-toast { top: 84px; left: 50%; transform: translateX(-50%); font-size: 20px; font-weight: 700; color: #f2c94c; text-shadow: 0 2px 6px rgba(0,0,0,0.7); opacity: 0; transition: opacity 0.4s; }
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #f5f1e6; background: radial-gradient(ellipse at center, rgba(10,16,26,0.25) 0%, rgba(10,16,26,0.72) 100%); }
+  .screen h1 { font-size: 84px; margin: 0; letter-spacing: 10px; color: #ffd75e; text-shadow: 0 4px 0 #b3541e, 0 8px 24px rgba(0,0,0,0.6); }
+  .screen h2 { font-size: 22px; margin: 6px 0 18px; font-weight: 400; color: #ffe9a8; }
+  .screen p { font-size: 16px; line-height: 1.7; color: #e8e2d2; margin: 4px 0; max-width: 620px; }
+  .screen .keys { font-size: 14px; color: #c9c2ae; margin-top: 14px; }
+  .screen .prompt { margin-top: 22px; font-size: 20px; font-weight: 700; color: #f2c94c; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  #screen-over h1 { font-size: 56px; color: #ff6b5e; text-shadow: 0 4px 0 #7a1f18, 0 8px 24px rgba(0,0,0,0.6); }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="game" aria-label="SOLMAR: an open-world crime game. Drive, steal cars, dodge the police and run Mara's jobs."></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud">
+  <div id="hud-cash" class="panel">$0</div>
+  <div id="hud-right" class="panel"><div id="hud-stars">☆☆☆☆☆</div><div id="hud-clock">15:30</div></div>
+  <div id="hud-objective" class="panel"></div>
+  <div id="hud-toast"></div>
+  <div id="hud-prompt"></div>
+  <canvas id="minimap" width="220" height="220"></canvas>
+  <div id="hud-health" class="panel"><div class="label">HEALTH</div><div id="hud-health-bar"><div id="hud-health-fill"></div></div></div>
+  <div id="hud-speed" class="panel"></div>
+</div>
+
+<div id="screen-title" class="screen" style="display:flex">
+  <h1>SOLMAR</h1>
+  <h2>Streets of Solmar — an open-world crime story</h2>
+  <p>You are <b>Rook</b>, a getaway driver in debt to fixer <b>Mara Solano</b>. Steal cars, outrun the Solmar PD, and run her three jobs — from a first stolen car to the dockside turf war.</p>
+  <p class="keys">WASD / arrows — move &amp; drive &nbsp;·&nbsp; E — steal / exit car &nbsp;·&nbsp; Mouse — shoot &nbsp;·&nbsp; F — punch &nbsp;·&nbsp; Shift — sprint &nbsp;·&nbsp; P — pause &nbsp;·&nbsp; M — mute &nbsp;·&nbsp; R — restart &nbsp;·&nbsp; Drag mouse — look around</p>
+  <div class="prompt">Press Space or click to start</div>
+</div>
+
+<div id="screen-paused" class="screen">
+  <h1 style="font-size:56px">PAUSED</h1>
+  <p>Solmar waits for you.</p>
+  <div class="prompt">Press P to resume</div>
+</div>
+
+<div id="screen-over" class="screen">
+  <h1>BUSTED</h1>
+  <p id="over-stats"></p>
+  <p>Mara will have words. The city will still be there.</p>
+  <div class="prompt">Press Space or R to play again</div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
