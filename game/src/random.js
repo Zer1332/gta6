@@ -1,8 +1,9 @@
-// SOLMAR — small seeded random source. One seed drives the whole city, so the
-// same seed always builds the same Solmar: same towers, same traffic colours,
-// same pedestrians. Nothing in the game reads Math.random after boot.
-export function makeRng(seed) {
-  let a = (seed >>> 0) || 1;
+// SOLMAR — random.js
+// RNG deterministik (mulberry32) supaya kota, lalu lintas, dan mode
+// screenshot ?shot=...&seed=1 selalu menghasilkan dunia yang sama.
+
+export function mulberry32(seed) {
+  let a = seed >>> 0;
   return function next() {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;
@@ -12,18 +13,34 @@ export function makeRng(seed) {
   };
 }
 
-export function range(rng, lo, hi) {
-  return lo + rng() * (hi - lo);
-}
+export class Rng {
+  constructor(seed) {
+    this.next = mulberry32(seed);
+  }
 
-export function intRange(rng, lo, hi) {
-  return lo + Math.floor(rng() * (hi - lo + 1));
-}
+  range(min, max) {
+    return min + this.next() * (max - min);
+  }
 
-export function pick(rng, list) {
-  return list[Math.floor(rng() * list.length)];
-}
+  int(min, max) {
+    return Math.floor(this.range(min, max + 1));
+  }
 
-export function chance(rng, p) {
-  return rng() < p;
+  pick(list) {
+    return list[Math.floor(this.next() * list.length)];
+  }
+
+  chance(p) {
+    return this.next() < p;
+  }
+
+  // Acak urutan salinan array (Fisher-Yates).
+  shuffle(list) {
+    const out = list.slice();
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(this.next() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }
 }

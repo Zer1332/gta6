@@ -1,113 +1,161 @@
-// SOLMAR — every sound is synthesised with WebAudio: no audio files, no
-// network. Engine hum is a low oscillator whose pitch follows speed, the siren
-// is two alternating tones, gunshots are filtered noise bursts, and the phone
-// ring is a pair of soft sine blips. Everything stays silent until the player
-// first interacts, and M mutes it all.
-export function createAudio() {
-  let ctx = null;
-  let muted = false;
-  let engineNodes = null;
-  let sirenTimer = 0;
-  let sirenHigh = false;
+// SOLMAR — audio.js
+// Semua suara disintesis lewat WebAudio — tanpa file audio sama sekali.
+// Dengung mesin, sirene, tembakan, bunyi pickup, dan dering telepon.
 
-  function ensure() {
-    if (ctx) {
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-      return ctx;
-    }
+export class AudioEngine {
+  constructor() {
+    this.ctx = null;
+    this.master = null;
+    this.muted = false;
+    this.engineOsc = null;
+    this.engineGain = null;
+    this.sirenTimer = null;
+  }
+
+  // Dipanggil sekali setelah interaksi pertama pengguna (atau mode shot).
+  init() {
+    if (this.ctx) return;
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return null;
-      ctx = new AC();
-    } catch {
-      ctx = null;
+      if (!AC) return;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.5;
+      this.master.connect(this.ctx.destination);
+      // Dengung mesin: osilator sawtooth rendah + lowpass.
+      this.engineOsc = this.ctx.createOscillator();
+      this.engineOsc.type = 'sawtooth';
+      this.engineOsc.frequency.value = 50;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 400;
+      this.engineGain = this.ctx.createGain();
+      this.engineGain.gain.value = 0;
+      this.engineOsc.connect(filter);
+      filter.connect(this.engineGain);
+      this.engineGain.connect(this.master);
+      this.engineOsc.start();
+    } catch (e) {
+      this.ctx = null;
     }
-    return ctx;
   }
 
-  function tone(freq, dur, type, gain, when = 0) {
-    const c = ensure();
-    if (!c || muted) return;
-    const t0 = c.currentTime + when;
-    const osc = c.createOscillator();
-    const g = c.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, t0);
-    g.gain.setValueAtTime(gain, t0);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(g).connect(c.destination);
-    osc.start(t0);
-    osc.stop(t0 + dur + 0.02);
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
   }
 
-  function noiseBurst(dur, gain, filterFreq) {
-    const c = ensure();
-    if (!c || muted) return;
-    const len = Math.max(1, Math.floor(c.sampleRate * dur));
-    const buf = c.createBuffer(1, len, c.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-    const src = c.createBufferSource();
-    src.buffer = buf;
-    const filt = c.createBiquadFilter();
-    filt.type = 'lowpass';
-    filt.frequency.value = filterFreq;
-    const g = c.createGain();
-    g.gain.value = gain;
-    src.connect(filt).connect(g).connect(c.destination);
-    src.start();
+  setMuted(muted) {
+    this.muted = muted;
+    if (this.master) this.master.gain.value = muted ? 0 : 0.5;
   }
 
-  return {
-    unlock() { ensure(); },
-    setMuted(value) {
-      muted = value;
-      if (muted) this.engineOff();
-    },
-    get muted() { return muted; },
-    engine(speedRatio) {
-      const c = ensure();
-      if (!c || muted) { this.engineOff(); return; }
-      if (!engineNodes) {
-        const osc = c.createOscillator();
-        osc.type = 'sawtooth';
-        const filt = c.createBiquadFilter();
-        filt.type = 'lowpass';
-        filt.frequency.value = 420;
-        const g = c.createGain();
-        g.gain.value = 0.0;
-        osc.connect(filt).connect(g).connect(c.destination);
-        osc.start();
-        engineNodes = { osc, g };
-      }
-      engineNodes.osc.frequency.value = 55 + speedRatio * 130;
-      engineNodes.g.gain.value = 0.045 + speedRatio * 0.05;
-    },
-    engineOff() {
-      if (engineNodes) {
-        try { engineNodes.osc.stop(); } catch { /* already stopped */ }
-        engineNodes = null;
-      }
-    },
-    siren(dt, active) {
-      if (!active) return;
-      sirenTimer -= dt;
-      if (sirenTimer <= 0) {
-        sirenTimer = 0.42;
-        sirenHigh = !sirenHigh;
-        tone(sirenHigh ? 880 : 660, 0.4, 'sine', 0.05);
-      }
-    },
-    shot() { noiseBurst(0.12, 0.5, 2400); tone(180, 0.08, 'square', 0.12); },
-    rivalShot() { noiseBurst(0.1, 0.25, 1800); },
-    reload() { tone(520, 0.06, 'square', 0.08); tone(700, 0.06, 'square', 0.08, 0.12); },
-    pickup() { tone(660, 0.12, 'sine', 0.14); tone(990, 0.18, 'sine', 0.14, 0.1); },
-    phone() {
-      tone(1180, 0.16, 'sine', 0.1);
-      tone(1180, 0.16, 'sine', 0.1, 0.28);
-    },
-    crash() { noiseBurst(0.3, 0.4, 700); },
-    click() { tone(440, 0.05, 'square', 0.06); },
-    busted() { tone(330, 0.5, 'sawtooth', 0.12); tone(220, 0.7, 'sawtooth', 0.12, 0.3); },
-  };
+  // Nada mesin mengikuti kecepatan mobil (0..1).
+  setEngine(ratio, on) {
+    if (!this.ctx || !this.engineOsc) return;
+    const t = this.ctx.currentTime;
+    this.engineOsc.frequency.setTargetAtTime(45 + ratio * 140, t, 0.08);
+    this.engineGain.gain.setTargetAtTime(on ? 0.05 + ratio * 0.06 : 0, t, 0.1);
+  }
+
+  // Ledakan singkat noise + klik untuk tembakan.
+  shoot(isSmg) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const dur = isSmg ? 0.08 : 0.14;
+    const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 800;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(isSmg ? 0.25 : 0.4, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.master);
+    src.start(t);
+  }
+
+  // Dua nada naik-turun bergantian untuk sirene polisi.
+  siren(on) {
+    if (!this.ctx) return;
+    if (on && !this.sirenTimer) {
+      let high = false;
+      this.sirenTimer = setInterval(() => {
+        if (this.muted || !this.ctx) return;
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = high ? 950 : 700;
+        high = !high;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.06, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+        osc.connect(gain);
+        gain.connect(this.master);
+        osc.start(t);
+        osc.stop(t + 0.45);
+      }, 450);
+    } else if (!on && this.sirenTimer) {
+      clearInterval(this.sirenTimer);
+      this.sirenTimer = null;
+    }
+  }
+
+  // Bunyi "ding" dua nada untuk pickup / uang masuk.
+  pickup() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    [660, 990].forEach((freq, i) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.2, t + i * 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.09 + 0.25);
+      osc.connect(gain);
+      gain.connect(this.master);
+      osc.start(t + i * 0.09);
+      osc.stop(t + i * 0.09 + 0.3);
+    });
+  }
+
+  // Dering telepon: tiga nada pendek.
+  phone() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 1200;
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.08, t + i * 0.25);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.25 + 0.15);
+      osc.connect(gain);
+      gain.connect(this.master);
+      osc.start(t + i * 0.25);
+      osc.stop(t + i * 0.25 + 0.18);
+    }
+  }
+
+  // Bunyi klik untuk tombol / reload.
+  click() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.value = 1800;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.08, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    osc.connect(gain);
+    gain.connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.06);
+  }
 }

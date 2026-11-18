@@ -1,113 +1,183 @@
-// SOLMAR — the wanted system: 0 to 5 stars. Stealing a car, firing a gun
-// or speeding past a patrol raises it; staying unseen for twenty seconds
-// drops a star. Each star keeps a police car in the chase (up to five), and
-// at three stars officers join on foot. Get caught standing still next to a
-// patrol car, or lose all health, and Rook wakes up at the hospital minus
-// ten percent of his cash.
-import { PLACES } from './config.js';
-import { makePoliceCar, updatePoliceCar } from './vehicles.js';
-import { intRange } from './random.js';
+// SOLMAR — police.js
+// Sistem wanted 0–5 bintang dan polisi Solmar: mobil patroli yang mengejar,
+// petugas jalan kaki, penangkapan saat pemain terpojok, dan wanted yang
+// turun bila pemain tak terlihat selama 20 detik.
 
-const UNSEEN_DROP_SECONDS = 20;
-const BUSTED_HOLD_SECONDS = 2;
+import { CONFIG } from './config.js';
+import { makeCarMesh } from './vehicles.js';
 
-export function createPolice(scene, rng) {
-  return {
-    wanted: 0,
-    unseenTimer: 0,
-    bustedTimer: 0,
-    cars: [],
-    officers: [],
-    rng,
-    scene,
-  };
-}
-
-export function addWanted(police, amount) {
-  police.wanted = Math.max(0, Math.min(5, police.wanted + amount));
-  police.unseenTimer = 0;
-  police.bustedTimer = 0;
-}
-
-export function wantedCarCount(police) {
-  return Math.min(police.wanted, 5);
-}
-
-function spawnChaser(police, nearX, nearZ) {
-  const car = makePoliceCar(police.scene);
-  const angle = police.rng() * Math.PI * 2;
-  car.x = nearX + Math.sin(angle) * 55;
-  car.z = nearZ + Math.cos(angle) * 55;
-  car.x = Math.max(-390, Math.min(390, car.x));
-  car.z = Math.max(-390, Math.min(330, car.z));
-  police.cars.push(car);
-  return car;
-}
-
-export function updatePolice(police, dt, player, audio) {
-  const target = player.inCar ? { x: player.inCar.x, z: player.inCar.z } : { x: player.x, z: player.z };
-  const wanted = police.wanted;
-  const wantCars = wantedCarCount(police);
-  // Keep the chase fleet at the wanted level's size.
-  while (police.cars.length < wantCars) spawnChaser(police, target.x, target.z);
-  while (police.cars.length > wantCars) {
-    const car = police.cars.pop();
-    car.alive = false;
-    police.scene.remove(car.mesh);
+export class Police {
+  constructor(scene, rng) {
+    this.scene = scene;
+    this.rng = rng;
+    this.cars = []; // {mesh, speed, heading}
+    this.officers = []; // {mesh, pos, speed}
+    this.unseenTime = 0;
+    this.bustTimer = 0;
+    this.sirenOn = false;
   }
-  let nearest = Infinity;
-  for (const car of police.cars) {
-    const dist = updatePoliceCar(car, target.x, target.z, dt, audio);
-    nearest = Math.min(nearest, dist);
-  }
-  audio.siren(dt, police.cars.length > 0);
 
-  // Wanted cools off after twenty seconds out of every patrol car's sight.
-  // Sight here is simple and fair: a patrol car within 45 m sees Rook.
-  const seen = nearest < 45;
-  if (wanted > 0) {
-    if (seen) police.unseenTimer = 0;
-    else {
-      police.unseenTimer += dt;
-      if (police.unseenTimer >= UNSEEN_DROP_SECONDS) {
-        police.wanted -= 1;
-        police.unseenTimer = 0;
+  wantedCount(wanted) {
+    return Math.min(wanted, 3); // maks 3 mobil patroli aktif
+  }
+
+  update(dt, game) {
+    const wanted = game.state.wanted;
+    const playerPos = game.player.pos;
+    // Spawn / despawn mobil polisi sesuai wanted.
+    const want = this.wantedCount(wanted);
+    while (this.cars.length < want) this.spawnCar(game);
+    while (this.cars.length > want) {
+      const c = this.cars.pop();
+      this.scene.remove(c.mesh);
+    }
+    // Petugas jalan kaki saat wanted >= 2 dan pemain jalan kaki.
+    const wantOfficers = wanted >= 2 && !game.player.inCar ? Math.min(2, wanted - 1) : 0;
+    while (this.officers.length < wantOfficers) this.spawnOfficer(game);
+    while (this.officers.length > wantOfficers) {
+      const o = this.officers.pop();
+      this.scene.remove(o.mesh);
+    }
+
+    let nearest = Infinity;
+    for (const c of this.cars) {
+      // Kejar pemain: belok menuju pemain, kecepatan sedikit di bawah pemain.
+      const dx = playerPos.x - c.mesh.position.x;
+      const dz = playerPos.z - c.mesh.position.z;
+      const dist = Math.hypot(dx, dz);
+      nearest = Math.min(nearest, dist);
+      const targetHeading = Math.atan2(dx, dz);
+      let dh = targetHeading - c.heading;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      c.heading += Math.max(-2.2 * dt, Math.min(2.2 * dt, dh));
+      c.speed = Math.min(CONFIG.policeCarSpeed, c.speed + 12 * dt);
+      c.mesh.position.x += Math.sin(c.heading) * c.speed * dt;
+      c.mesh.position.z += Math.cos(c.heading) * c.speed * dt;
+      c.mesh.rotation.y = c.heading;
+      for (const w of c.mesh.userData.wheels) w.rotation.x += (c.speed * dt) / 0.38;
+      // Kedip lightbar.
+      const phase = Math.floor(game.now * 6) % 2 === 0;
+      if (c.mesh.userData.lightbar) {
+        c.mesh.userData.lightbar.red.material.color.setHex(phase ? 0xff2020 : 0x400000);
+        c.mesh.userData.lightbar.blue.material.color.setHex(phase ? 0x2020ff : 0x000040);
       }
+      // Tabrakan dengan mobil pemain (damage + perlambatan per detik).
+      if (game.player.inCar && dist < 4.5) {
+        game.player.inCar.speed = Math.max(0, game.player.inCar.speed - 6 * dt);
+        game.player.inCar.health = Math.max(0, game.player.inCar.health - 8 * dt);
+      }
+    }
+    for (const o of this.officers) {
+      const dx = playerPos.x - o.mesh.position.x;
+      const dz = playerPos.z - o.mesh.position.z;
+      const dist = Math.hypot(dx, dz);
+      nearest = Math.min(nearest, dist);
+      const step = Math.min(dist, 5.5 * dt);
+      o.mesh.position.x += (dx / (dist || 1)) * step;
+      o.mesh.position.z += (dz / (dist || 1)) * step;
+      o.mesh.rotation.y = Math.atan2(dx, dz);
+      o.walkPhase += dt * 8;
+      o.mesh.userData.legL.rotation.x = Math.sin(o.walkPhase) * 0.5;
+      o.mesh.userData.legR.rotation.x = -Math.sin(o.walkPhase) * 0.5;
+    }
+
+    // Sirene berbunyi saat wanted > 0.
+    const siren = wanted > 0;
+    if (siren !== this.sirenOn) {
+      this.sirenOn = siren;
+      game.audio.siren(siren);
+    }
+
+    // Wanted turun bila tidak terlihat: tidak ada polisi dalam 60 m.
+    if (wanted > 0) {
+      if (nearest > 60) {
+        this.unseenTime += dt;
+        if (this.unseenTime > CONFIG.wantedDecayTime) {
+          game.state.wanted = Math.max(0, wanted - 1);
+          this.unseenTime = 0;
+        }
+      } else {
+        this.unseenTime = 0;
+      }
+    }
+
+    // Penangkapan: polisi sangat dekat dan pemain lambat / jalan kaki.
+    if (wanted > 0 && nearest < CONFIG.bustDistance) {
+      const slow = game.player.inCar ? Math.abs(game.player.inCar.speed) < 2 : true;
+      if (slow) {
+        this.bustTimer += dt;
+        if (this.bustTimer > CONFIG.bustTime) {
+          this.bustTimer = 0;
+          game.busted();
+        }
+      } else {
+        this.bustTimer = 0;
+      }
+    } else {
+      this.bustTimer = 0;
     }
   }
 
-  // Busted: on foot, slow, and a patrol car right on top of Rook.
-  let busted = false;
-  if (wanted > 0 && !player.inCar && player.speed < 2 && nearest < 4) {
-    police.bustedTimer += dt;
-    if (police.bustedTimer >= BUSTED_HOLD_SECONDS) busted = true;
-  } else {
-    police.bustedTimer = 0;
+  spawnCar(game) {
+    const p = game.player.pos;
+    const a = this.rng.range(0, Math.PI * 2);
+    const x = Math.max(-390, Math.min(390, p.x + Math.cos(a) * 60));
+    const z = Math.max(-390, Math.min(390, p.z + Math.sin(a) * 60));
+    const mesh = makeCarMesh(0x14142a, true);
+    mesh.position.set(x, 0, z);
+    this.scene.add(mesh);
+    this.cars.push({ mesh, speed: 10, heading: Math.atan2(p.x - x, p.z - z) });
   }
-  return { nearest, seen, busted };
-}
 
-export function clearPolice(police) {
-  for (const car of police.cars) police.scene.remove(car.mesh);
-  police.cars = [];
-  police.wanted = 0;
-  police.unseenTimer = 0;
-  police.bustedTimer = 0;
-}
+  spawnOfficer(game) {
+    const p = game.player.pos;
+    const a = this.rng.range(0, Math.PI * 2);
+    const mesh = this.makeOfficerMesh();
+    mesh.position.set(p.x + Math.cos(a) * 25, 0, p.z + Math.sin(a) * 25);
+    this.scene.add(mesh);
+    this.officers.push({ mesh, walkPhase: 0 });
+  }
 
-export function hospitalRespawn(player) {
-  player.x = PLACES.hospital.x + 20;
-  player.z = PLACES.hospital.z + 18;
-  player.y = 0;
-  player.vy = 0;
-  player.health = 100;
-  player.alive = true;
-  player.mesh.position.set(player.x, 0, player.z);
-  player.mesh.visible = true;
-  if (player.inCar) {
-    player.inCar.driver = null;
-    player.inCar = null;
+  makeOfficerMesh() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 1.0, 0.4),
+      new THREE.MeshLambertMaterial({ color: 0x1a2a4a }),
+    );
+    body.position.y = 1.05;
+    body.castShadow = true;
+    g.add(body);
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 0.42, 0.42),
+      new THREE.MeshLambertMaterial({ color: 0xd8a880 }),
+    );
+    head.position.y = 1.8;
+    g.add(head);
+    const cap = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.26, 0.28, 0.14, 10),
+      new THREE.MeshLambertMaterial({ color: 0x101828 }),
+    );
+    cap.position.y = 2.02;
+    g.add(cap);
+    const legMat = new THREE.MeshLambertMaterial({ color: 0x141828 });
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.8, 0.3), legMat);
+    legL.position.set(-0.18, 0.4, 0);
+    g.add(legL);
+    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.8, 0.3), legMat);
+    legR.position.set(0.18, 0.4, 0);
+    g.add(legR);
+    g.userData.legL = legL;
+    g.userData.legR = legR;
+    return g;
+  }
+
+  clear() {
+    for (const c of this.cars) this.scene.remove(c.mesh);
+    for (const o of this.officers) this.scene.remove(o.mesh);
+    this.cars = [];
+    this.officers = [];
+    this.bustTimer = 0;
+    this.unseenTime = 0;
   }
 }
-
-export { intRange };

@@ -1,77 +1,118 @@
-// SOLMAR — every tuning number in one place. The city is 800 by 800 metres,
-// roads on an 80 m grid, water along the south edge. All money is in dollars.
-/** The simulation's fixed step, in seconds: 60 updates a second. */
-export const STEP = 1 / 60;
+// SOLMAR — config.js
+// Satu sumber kebenaran untuk angka balance, tata kota, dan definisi misi.
+// Semua nama, tempat, dan karakter di sini orisinal (kota fiksi Solmar).
 
-export const SOLMAR = {
-  cityHalf: 400,
-  roadGap: 80,
-  waterZ: 340,
-  step: STEP,
-  saveKey: 'solmar.save.v1',
-};
+export const CONFIG = {
+  // Dunia
+  cityHalf: 400, // kota 800 x 800 meter, pusat di (0, 0)
+  roadEvery: 100, // jarak antar jalan grid
+  roadWidth: 14,
+  waterX: 405, // air mulai di timur kota
+  seed: 1,
 
-export const PLAYER_TUNE = {
+  // Pemain
+  playerHealth: 100,
+  healthRegenDelay: 5, // detik tanpa damage sebelum pulih
+  healthRegenRate: 8, // HP per detik
   walkSpeed: 6,
   runSpeed: 10,
-  jumpSpeed: 8,
-  gravity: 22,
-  maxHealth: 100,
-  regenDelay: 5,
-  regenRate: 12,
-  eyeHeight: 2.6,
+  jumpSpeed: 7,
+
+  // Mobil pemain
+  carTopSpeed: 38, // m/s, sedikit di atas mobil polisi
+  carAccel: 16,
+  carBrake: 30,
+  carTurn: 1.9,
+  carHealth: 100,
+
+  // Lalu lintas
+  trafficCars: 24,
+  trafficSpeedMin: 8,
+  trafficSpeedMax: 14,
+  pedestrians: 40,
+
+  // Senjata
+  pistolDamage: 25,
+  pistolMag: 12,
+  pistolFireRate: 0.28,
+  smgDamage: 12,
+  smgMag: 30,
+  smgFireRate: 0.09,
+  reloadTime: 1.4,
+
+  // Polisi / wanted
+  maxWanted: 5,
+  wantedDecayTime: 20, // detik tak terlihat sebelum wanted turun
+  policeCarSpeed: 34, // sedikit di bawah top speed pemain
+  bustDistance: 3,
+  bustTime: 2.5,
+
+  // Ekonomi
+  startMoney: 50,
+  deathPenalty: 0.1, // kehilangan 10% uang saat tertangkap / tewas
+  missionRewards: [300, 500, 800],
+  mission2TimeLimit: 90, // detik
 };
 
-export const CAR_TUNE = {
-  maxSpeed: 34,
-  policeMaxSpeed: 31,
-  accel: 16,
-  brake: 26,
-  reverseMax: 10,
-  steer: 1.9,
-  handbrake: 30,
-  grip: 6,
+// Lokasi kunci di peta (x, z). Sumbu x ke timur (dermaga), z ke selatan.
+export const PLACES = {
+  hospital: { x: -320, z: -320, name: 'Rumah Sakit Solmar' },
+  parkingLot: { x: -280, z: 220, name: 'Tempat Parkir Marina' },
+  maraGarage: { x: 280, z: -220, name: 'Garasi Mara' },
+  packagePickup: { x: -100, z: -100, name: 'Kantor Pusat' },
+  dockGate: { x: 380, z: 150, name: 'Gerbang Dermaga' },
+  dockEnd: { x: 445, z: 150, name: 'Ujung Dermaga' },
+  vultureCamp: { x: 415, z: 150, name: 'Dermaga Vulture' },
+  downtown: { x: 0, z: 0, name: 'Pusat Kota' },
 };
 
-export const WEAPONS = {
-  pistol: { name: 'Pistol', damage: 25, mag: 12, reserve: 60, rate: 0.28, range: 90, auto: false },
-  smg: { name: 'SMG', damage: 12, mag: 30, reserve: 150, rate: 0.09, range: 70, auto: true },
-};
-
-export const RIVAL_HP = 60;
-export const TRAFFIC_COUNT = 24;
-export const PED_COUNT = 40;
-
+// Definisi tiga misi cerita, berurutan.
 export const MISSIONS = [
-  { id: 1, name: 'First Gear', reward: 300, brief: 'Curi sedan yang ditandai dari tempat parkir, lalu antar ke garasi Mara.' },
-  { id: 2, name: 'Sunset Run', reward: 500, brief: 'Antar paket ke dermaga dalam 90 detik. Jangan sampai terlambat.', timeLimit: 90 },
-  { id: 3, name: 'Dockside', reward: 800, brief: 'Kalahkan 3 anggota geng Vulture di dermaga, lalu kembali ke Mara.' },
+  {
+    id: 0,
+    title: 'First Gear',
+    reward: 300,
+    call: 'Mara Solano: "Rook, ada sedan biru di Tempat Parkir Marina. Ambil, antar ke garasiku. Jangan sampai hancur."',
+    objectives: [
+      'Curi sedan biru di Tempat Parkir Marina (tekan E di dekatnya)',
+      'Antar sedan ke Garasi Mara',
+    ],
+  },
+  {
+    id: 1,
+    title: 'Sunset Run',
+    reward: 500,
+    call: 'Mara Solano: "Paket di Kantor Pusat harus sampai ke dermaga dalam 90 detik. Jangan ngebut di pusat kota — polisi sedang siaga."',
+    objectives: [
+      'Ambil paket di Kantor Pusat',
+      'Antar paket ke Ujung Dermaga sebelum waktu habis',
+    ],
+    timeLimit: 90,
+  },
+  {
+    id: 2,
+    title: 'Dockside',
+    reward: 800,
+    call: 'Mara Solano: "Geng Vulture menguasai dermaga. Habisi ketiganya, lalu kembali ke garasi. Hati-hati, Rook."',
+    objectives: [
+      'Kalahkan 3 anggota geng Vulture di dermaga',
+      'Kembali ke Garasi Mara',
+    ],
+  },
 ];
 
-export const PLACES = {
-  parking: { x: -200, z: 160 },
-  garage: { x: 200, z: -200 },
-  dock: { x: 0, z: 315 },
-  hospital: { x: -280, z: -280 },
-  mara: { x: 200, z: -200 },
-  start: { x: 40, z: 40 },
-};
-
-export const SUNSET = {
-  skyTop: 0x2e4a7a,
-  skyHorizon: 0xff9a52,
-  fog: 0xe08a4e,
-  sunColor: 0xffb36b,
-  sunIntensity: 1.6,
-  hemiSky: 0x8a7bb8,
-  hemiGround: 0x3a2f28,
-};
-
+// Palet warna kota saat senja.
 export const PALETTE = {
-  building: [0xb5a894, 0x93a7b8, 0xc4b28a, 0xa394b8, 0x8498a6, 0xcfc0a2, 0x9c8a7a, 0x74a0b5],
-  car: [0xc23b2e, 0x2e6bc2, 0xe0a92e, 0x3aa655, 0xd8d8d8, 0x222226, 0x7a4fb0, 0xe07a2e],
-  shirt: [0xe0e0e0, 0x3a7bd5, 0xe07a3a, 0x6ab04c, 0xd6457a, 0xf2c94c, 0x8e44ad, 0x2ecc71],
-  asphalt: '#4a4d52',
-  sidewalk: '#8d8578',
-  water: 0x1d5f7a,
+  sky: 0xff9a5c,
+  fog: 0xe88a5a,
+  ground: 0x9a9a92,
+  road: 0x2e2e33,
+  sidewalk: 0xb8b8ae,
+  sand: 0xd9c08a,
+  water: 0x1e5f7a,
+  building: [0x8a7f72, 0x6f7f8a, 0x9a8a6a, 0x7a6a7f, 0x5f6f7a, 0xa08a7a, 0x74655a],
+  glass: 0x2a3a4a,
+  palmTrunk: 0x7a5a3a,
+  palmLeaf: 0x2f7a3a,
+  police: 0x1a1a2e,
 };

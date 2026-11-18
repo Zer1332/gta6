@@ -1,100 +1,72 @@
-// SOLMAR — keyboard and mouse. Keys are held in a set; edge presses (E, F, R,
-// P, M, digits, Space-as-jump) are reported once through justPressed, which the
-// main loop drains every frame. Mouse movement feeds the third-person camera
-// while pointer lock is held; a plain click still fires the weapon when the
-// pointer is not locked, so the game stays playable in a plain browser tab.
-export function createInput(canvas) {
-  const keys = new Set();
-  const pressed = new Set();
-  let mouseDX = 0;
-  let mouseDY = 0;
-  let mouseDown = false;
-  let mouseClicked = false;
-  let locked = false;
+// SOLMAR — input.js
+// Keyboard + mouse: WASD, Shift lari, E masuk/keluar mobil, F interaksi,
+// Space lompat/rem tangan, klik menembak, R isi ulang, 1/2 ganti senjata,
+// P/Esc pause, M mute. Mouse look memakai pointer lock saat bermain.
 
-  function onKeyDown(e) {
-    if (e.repeat) return;
-    keys.add(e.code);
-    pressed.add(e.code);
-    if (e.code === 'Space') e.preventDefault();
-  }
-  function onKeyUp(e) {
-    keys.delete(e.code);
-  }
-  function onMouseMove(e) {
-    if (document.pointerLockElement === canvas) {
-      mouseDX += e.movementX || 0;
-      mouseDY += e.movementY || 0;
-    }
-  }
-  function onMouseDown(e) {
-    if (e.button === 0) {
-      mouseDown = true;
-      mouseClicked = true;
-    }
-  }
-  function onMouseUp(e) {
-    if (e.button === 0) mouseDown = false;
-  }
-  function onLockChange() {
-    locked = document.pointerLockElement === canvas;
-  }
-  function onBlur() {
-    keys.clear();
-    mouseDown = false;
+export class Input {
+  constructor() {
+    this.keys = new Set();
+    this.mouseDX = 0;
+    this.mouseDY = 0;
+    this.mouseDown = false;
+    this.locked = false;
+    this.onKey = null; // callback(code) untuk aksi sekali tekan
+    this.onMouseDown = null;
+    this.enabled = true;
   }
 
-  window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup', onKeyUp);
-  window.addEventListener('blur', onBlur);
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('pointerlockchange', onLockChange);
-  canvas.addEventListener('mousedown', onMouseDown);
-  window.addEventListener('mouseup', onMouseUp);
-
-  return {
-    get locked() { return locked; },
-    down(code) { return keys.has(code); },
-    justPressed(code) { return pressed.has(code); },
-    takeMouse() {
-      const dx = mouseDX;
-      const dy = mouseDY;
-      mouseDX = 0;
-      mouseDY = 0;
-      return { dx, dy };
-    },
-    takeClick() {
-      const c = mouseClicked;
-      mouseClicked = false;
-      return c;
-    },
-    get mouseHeld() { return mouseDown; },
-    lockPointer() {
-      if (document.pointerLockElement !== canvas) {
-        canvas.requestPointerLock?.();
+  attach(canvas) {
+    this.canvas = canvas;
+    window.addEventListener('keydown', (e) => {
+      if (!this.enabled) return;
+      if (e.repeat) return;
+      this.keys.add(e.code);
+      if (this.onKey) this.onKey(e.code);
+      if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+    });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('blur', () => this.keys.clear());
+    document.addEventListener('mousemove', (e) => {
+      if (!this.locked) return;
+      this.mouseDX += e.movementX || 0;
+      this.mouseDY += e.movementY || 0;
+    });
+    canvas.addEventListener('mousedown', (e) => {
+      if (!this.enabled) return;
+      this.mouseDown = true;
+      if (this.onMouseDown) this.onMouseDown(e.button);
+    });
+    window.addEventListener('mouseup', () => {
+      this.mouseDown = false;
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === canvas;
+    });
+    canvas.addEventListener('click', () => {
+      if (!this.locked && this.enabled) {
+        try {
+          canvas.requestPointerLock();
+        } catch (e) {
+          /* pointer lock tidak tersedia di headless */
+        }
       }
-    },
-    unlockPointer() {
-      if (document.pointerLockElement === canvas) document.exitPointerLock?.();
-    },
-    // Steering and throttle as -1..1, read straight from the held keys.
-    drive() {
-      return {
-        throttle: (this.down('KeyW') || this.down('ArrowUp') ? 1 : 0) - (this.down('KeyS') || this.down('ArrowDown') ? 1 : 0),
-        steer: (this.down('KeyA') || this.down('ArrowLeft') ? 1 : 0) - (this.down('KeyD') || this.down('ArrowRight') ? 1 : 0),
-        handbrake: this.down('Space'),
-      };
-    },
-    walk() {
-      let x = 0;
-      let z = 0;
-      if (this.down('KeyW') || this.down('ArrowUp')) z -= 1;
-      if (this.down('KeyS') || this.down('ArrowDown')) z += 1;
-      if (this.down('KeyA') || this.down('ArrowLeft')) x -= 1;
-      if (this.down('KeyD') || this.down('ArrowRight')) x += 1;
-      const len = Math.hypot(x, z) || 1;
-      return { x: x / len, z: z / len, run: this.down('ShiftLeft') || this.down('ShiftRight') };
-    },
-    endFrame() { pressed.clear(); },
-  };
+    });
+  }
+
+  isDown(code) {
+    return this.keys.has(code);
+  }
+
+  // Ambil dan nol-kan akumulasi gerakan mouse sejak frame lalu.
+  consumeMouse() {
+    const dx = this.mouseDX;
+    const dy = this.mouseDY;
+    this.mouseDX = 0;
+    this.mouseDY = 0;
+    return { dx, dy };
+  }
+
+  releaseLock() {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
 }

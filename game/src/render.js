@@ -1,82 +1,52 @@
-// SOLMAR — the three.js stage: renderer, sunset lighting, fog and the
-// third-person chase camera. The sun hangs low in the west all game long and
-// drifts slowly, so the city keeps its golden-hour look while the light
-// direction shifts. The camera follows behind Rook or his car, swings with
-// the mouse, and pulls back and up while driving.
-import * as THREE from 'three';
-import { SOLMAR, SUNSET } from './config.js';
+// SOLMAR — render.js
+// Renderer three.js, kamera, dan langit senja. Satu-satunya tempat yang
+// menyentuh WebGLRenderer secara langsung.
 
-export function createRender(canvas) {
+import { PALETTE } from './config.js';
+
+export function createRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.25;
+  renderer.toneMappingExposure = 1.05;
+  return renderer;
+}
 
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(SUNSET.skyHorizon);
-  scene.fog = new THREE.Fog(SUNSET.fog, 180, 700);
+export function createCamera() {
+  const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 2000);
+  camera.position.set(-320, 6, -280);
+  return camera;
+}
 
-  const hemi = new THREE.HemisphereLight(SUNSET.hemiSky, SUNSET.hemiGround, 1.05);
-  scene.add(hemi);
-  const sun = new THREE.DirectionalLight(SUNSET.sunColor, 2.1);
-  sun.position.set(-180, 120, 60);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.left = -320;
-  sun.shadow.camera.right = 320;
-  sun.shadow.camera.top = 320;
-  sun.shadow.camera.bottom = -320;
-  sun.shadow.camera.far = 700;
-  scene.add(sun);
-  scene.add(sun.target);
-
-  const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1200);
-
-  function resize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    renderer.setSize(w, h, false);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-  }
-  window.addEventListener('resize', resize);
-  resize();
-
-  let dayT = 0.35;
-  return {
-    scene,
-    camera,
-    renderer,
-    resize,
-    // Slow golden-hour drift: the sun sinks a little, then climbs back.
-    updateSun(dt) {
-      dayT += dt * 0.004;
-      const s = Math.sin(dayT * Math.PI);
-      sun.position.set(-180 + s * 40, 120 - s * 45, 60);
-      sun.intensity = 2.1 - s * 0.35;
+// Langit senja: bola besar dengan gradasi warna (shader sederhana).
+export function createSky(scene) {
+  const geo = new THREE.SphereGeometry(900, 24, 16);
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    uniforms: {
+      top: { value: new THREE.Color(0x3a4a7a) },
+      mid: { value: new THREE.Color(0xff9a5c) },
+      low: { value: new THREE.Color(0xe88a5a) },
     },
-    // Chase camera: behind the target by yaw, a touch higher while driving.
-    updateCamera(target, camYaw, camPitch, inCar, dt) {
-      const dist = inCar ? 11.5 : 8;
-      const height = inCar ? 4.4 : 3.4;
-      const want = new THREE.Vector3(
-        target.x + Math.sin(camYaw) * dist,
-        target.y + height + camPitch * 4,
-        target.z + Math.cos(camYaw) * dist,
-      );
-      camera.position.lerp(want, Math.min(1, dt * 7));
-      camera.lookAt(target.x, target.y + 1.6, target.z);
-    },
-    // Fixed cinematic framing for the title screen.
-    titleCamera(t) {
-      camera.position.set(Math.sin(t * 0.08) * 190, 95, Math.cos(t * 0.08) * 190 - 40);
-      camera.lookAt(0, 20, 40);
-    },
-    render() {
-      renderer.render(scene, camera);
-    },
-  };
+    vertexShader: 'varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'varying vec3 vPos; uniform vec3 top; uniform vec3 mid; uniform vec3 low; void main(){ float h = normalize(vPos).y; vec3 c = h > 0.25 ? mix(mid, top, smoothstep(0.25, 0.8, h)) : mix(low, mid, smoothstep(-0.1, 0.25, h)); gl_FragColor = vec4(c, 1.0); }',
+  });
+  const sky = new THREE.Mesh(geo, mat);
+  sky.name = 'sky';
+  scene.add(sky);
+  scene.background = new THREE.Color(PALETTE.sky);
+  return sky;
+}
+
+export function resize(renderer, camera) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
 }
