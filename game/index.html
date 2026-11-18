@@ -3,112 +3,96 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SOLMAR — Open-World Crime</title>
 <link rel="icon" href="data:,">
+<title>SOLMAR — Open-World Crime 3D</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1210;
-    font-family: "Segoe UI", Arial, sans-serif; color: #fff; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #14141c; font-family: 'Segoe UI', Arial, sans-serif; color: #eee; }
   #game-canvas { display: block; width: 100%; height: 100%; }
-  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-    flex-direction: column; background: rgba(10, 8, 12, 0.72); z-index: 20; text-align: center; }
-  .overlay h1 { font-size: 84px; letter-spacing: 14px; color: #ffd24a;
-    text-shadow: 0 4px 0 #8a2a2a, 0 8px 24px rgba(0,0,0,0.8); }
-  .overlay h2 { font-size: 22px; letter-spacing: 4px; color: #ff9a5c; margin: 8px 0 20px; }
-  .overlay p { max-width: 560px; line-height: 1.6; color: #e8e0d0; margin: 6px 0; }
-  .overlay ul { list-style: none; margin: 14px 0; line-height: 1.9; color: #ffd24a; font-size: 17px; }
-  .overlay .controls { color: #c8c0b0; font-size: 14px; line-height: 1.8; margin-top: 10px; }
-  .big-btn { margin-top: 22px; padding: 14px 46px; font-size: 20px; font-weight: bold; letter-spacing: 2px;
-    background: #ffd24a; color: #1a1210; border: none; border-radius: 6px; cursor: pointer; }
-  .big-btn:hover { background: #ffe08a; }
-  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; display: none; }
-  .panel { position: absolute; background: rgba(12, 14, 18, 0.72); border: 1px solid rgba(255,255,255,0.25);
-    border-radius: 6px; padding: 8px 12px; }
-  #health-box { top: 14px; left: 14px; width: 230px; }
-  #health-bar { height: 14px; background: #333; border-radius: 3px; overflow: hidden; margin-top: 4px; }
-  #health-fill { height: 100%; width: 100%; background: #4caf50; transition: width 0.2s; }
-  #money { top: 14px; left: 260px; font-size: 26px; font-weight: bold; color: #7ee081; }
-  #wanted { top: 14px; left: 260px; margin-top: 44px; font-size: 24px; letter-spacing: 4px; }
-  #objective { top: 14px; left: 50%; transform: translateX(-50%); max-width: 480px; font-size: 15px;
-    text-align: center; line-height: 1.4; }
-  #minimap { position: absolute; top: 14px; right: 14px; border: 2px solid rgba(255,255,255,0.6);
-    border-radius: 6px; background: rgba(20,24,30,0.85); }
-  #speed { bottom: 18px; right: 18px; font-size: 30px; font-weight: bold; }
-  #ammo-box { bottom: 18px; left: 18px; font-size: 20px; }
-  #ammo-box #weapon { color: #ffd24a; font-size: 14px; letter-spacing: 2px; }
-  #timer { position: absolute; top: 110px; left: 50%; transform: translateX(-50%); font-size: 30px; font-weight: bold;
-    display: none; text-shadow: 0 2px 6px #000; }
-  #banner { position: absolute; top: 34%; left: 50%; transform: translateX(-50%); font-size: 24px; font-weight: bold;
-    color: #ffd24a; text-shadow: 0 2px 8px #000; display: none; text-align: center; }
-  #phone { top: 170px; left: 14px; max-width: 340px; background: rgba(20, 30, 50, 0.9);
-    border-left: 4px solid #4a90ff; display: none; font-size: 14px; line-height: 1.5; padding: 12px; }
-  #phone b { color: #7ab8ff; }
-  #crosshair { position: absolute; top: 50%; left: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px;
-    display: none; }
-  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff;
-    box-shadow: 0 0 4px #000; }
+  .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: rgba(10, 8, 20, 0.72); z-index: 20; }
+  .title { font-size: 84px; letter-spacing: 18px; font-weight: 900; color: #ffd23a; text-shadow: 0 0 24px rgba(255, 150, 40, 0.8), 4px 4px 0 #7a2a1a; }
+  .subtitle { font-size: 18px; letter-spacing: 4px; color: #ffb060; margin-top: 4px; }
+  .panel { background: rgba(0,0,0,0.55); border: 1px solid #665; border-radius: 10px; padding: 16px 22px; margin-top: 22px; max-width: 560px; font-size: 14px; line-height: 1.7; text-align: left; }
+  .panel b { color: #ffd23a; }
+  .big-btn { margin-top: 24px; padding: 14px 44px; font-size: 20px; font-weight: 700; letter-spacing: 2px; color: #1a1a1a; background: #ffd23a; border: none; border-radius: 8px; cursor: pointer; }
+  .big-btn:hover { background: #ffe06a; }
+  #hud { position: absolute; inset: 0; pointer-events: none; z-index: 10; display: none; }
+  #hp-wrap { position: absolute; left: 18px; bottom: 18px; width: 240px; }
+  #hp-bar { width: 100%; height: 14px; background: #333; border: 1px solid #888; border-radius: 4px; overflow: hidden; }
+  #hp-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #3ac03a, #7ad83a); }
+  #hp-text { font-size: 12px; margin-top: 3px; text-shadow: 1px 1px 2px #000; }
+  #money { position: absolute; right: 18px; bottom: 18px; font-size: 26px; font-weight: 800; color: #7dff7d; text-shadow: 2px 2px 3px #000; }
+  #stars { position: absolute; right: 18px; top: 210px; font-size: 26px; letter-spacing: 3px; text-shadow: 2px 2px 3px #000; }
+  #objective { position: absolute; left: 18px; top: 16px; max-width: 430px; background: rgba(0,0,0,0.55); border-left: 4px solid #ffd23a; padding: 10px 14px; font-size: 14px; line-height: 1.5; border-radius: 0 6px 6px 0; }
+  #timer { position: absolute; left: 18px; top: 84px; font-size: 22px; font-weight: 800; color: #ffd23a; text-shadow: 2px 2px 3px #000; }
+  #speed { position: absolute; right: 18px; bottom: 58px; font-size: 22px; font-weight: 700; text-shadow: 2px 2px 3px #000; }
+  #ammo-box { position: absolute; right: 18px; bottom: 96px; text-align: right; font-size: 16px; text-shadow: 2px 2px 3px #000; }
+  #weapon { color: #ffd23a; font-weight: 700; }
+  #minimap { position: absolute; right: 18px; top: 16px; border: 2px solid #888; border-radius: 6px; background: #16241a; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; display: none; }
+  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; box-shadow: 0 0 3px #000; }
   #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
   #crosshair::after { left: 0; top: 10px; width: 22px; height: 2px; }
-  #interact { position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%); font-size: 17px; display: none;
-    background: rgba(12,14,18,0.8); padding: 8px 16px; border-radius: 6px; }
-  #damage-flash { position: fixed; inset: 0; pointer-events: none; z-index: 15;
-    background: radial-gradient(ellipse at center, transparent 55%, rgba(255,0,0,0.7) 100%);
-    opacity: 0; transition: opacity 0.15s; }
-  #mute-button { position: fixed; bottom: 14px; right: 150px; z-index: 11; pointer-events: auto;
-    background: rgba(12,14,18,0.8); color: #fff; border: 1px solid rgba(255,255,255,0.4);
-    border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
-  #gameover-screen h1 { color: #ff5040; }
-  .hint { margin-top: 18px; font-size: 13px; color: #999; }
+  #hitmarker { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; opacity: 0; font-size: 26px; line-height: 26px; color: #ffdd33; text-align: center; text-shadow: 0 0 4px #000; }
+  #banner { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font-size: 24px; font-weight: 800; color: #ffd23a; text-shadow: 2px 2px 4px #000; opacity: 0; transition: opacity 0.3s; white-space: nowrap; }
+  #phone { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); display: none; background: rgba(10, 20, 30, 0.92); border: 1px solid #4a7a9a; border-radius: 10px; padding: 14px 18px; max-width: 520px; font-size: 14px; line-height: 1.6; }
+  #phone-name { color: #7ac0ff; font-weight: 700; margin-bottom: 4px; }
+  #prompt { position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%); display: none; background: rgba(0,0,0,0.65); padding: 8px 16px; border-radius: 6px; font-size: 15px; font-weight: 600; }
+  #damage-flash { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(255,0,0,0.55) 100%); opacity: 0; pointer-events: none; }
+  #mute-btn { position: absolute; left: 18px; bottom: 64px; pointer-events: auto; background: rgba(0,0,0,0.55); color: #eee; border: 1px solid #888; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+  #gameover-screen, #pause-screen { display: none; }
+  #gameover-stats { font-size: 16px; margin-top: 14px; line-height: 1.8; }
+  .small { font-size: 13px; color: #bbb; margin-top: 18px; }
 </style>
 </head>
 <body>
 <canvas id="game-canvas"></canvas>
-<div id="damage-flash"></div>
 
 <div id="hud">
-  <div class="panel" id="health-box">NYAWA <span id="health-num">100</span>
-    <div id="health-bar"><div id="health-fill"></div></div>
-  </div>
-  <div class="panel" id="money">$50</div>
-  <div class="panel" id="wanted">☆☆☆☆☆</div>
-  <div class="panel" id="objective">Free roam — jelajahi Solmar.</div>
-  <canvas id="minimap" width="180" height="180"></canvas>
-  <div class="panel" id="speed"></div>
-  <div class="panel" id="ammo-box"><span id="weapon">PISTOL</span><br><span id="ammo">12 / 12</span></div>
+  <div id="objective">Tekan T untuk telepon Mara.</div>
   <div id="timer"></div>
-  <div id="banner"></div>
-  <div class="panel" id="phone"><b>📞 Mara Solano</b><br><span id="phone-text"></span></div>
+  <canvas id="minimap" width="180" height="180"></canvas>
+  <div id="stars">☆☆☆☆☆</div>
+  <div id="hp-wrap"><div id="hp-bar"><div id="hp-fill"></div></div><div id="hp-text">100 HP</div></div>
+  <div id="ammo-box"><span id="weapon">Pistol</span><br><span id="ammo">12 / 72</span></div>
+  <div id="speed"></div>
+  <div id="money">$50</div>
   <div id="crosshair"></div>
-  <div id="interact"></div>
+  <div id="hitmarker">✕</div>
+  <div id="banner"></div>
+  <div id="phone"><div id="phone-name">Mara Solano</div><div id="phone-text"></div></div>
+  <div id="prompt"></div>
+  <div id="damage-flash"></div>
+  <button id="mute-btn">🔊 Suara: Hidup</button>
 </div>
-<button id="mute-button">🔊 Suara (M)</button>
 
-<div class="overlay" id="start-screen" style="display:flex">
-  <h1>SOLMAR</h1>
-  <h2>OPEN-WORLD CRIME • KOTA FIKSI PESISIR</h2>
-  <p>Kamu Rook, sopir sewaan. Fixer Mara Solano memberimu pekerjaan lewat telepon.
-     Curi mobil, kabur dari polisi, selesaikan tiga misi — dan jangan sampai tertangkap.</p>
-  <ul id="mission-list"></ul>
-  <button class="big-btn" id="start-button">▶ CLICK TO START</button>
-  <div class="controls">
-    WASD bergerak • Mouse melihat • Shift lari • E masuk/keluar mobil • F interaksi<br>
-    Klik menembak • R isi ulang • 1/2 ganti senjata • Space lompat / rem tangan<br>
-    P pause • M mute • Progres tersimpan otomatis (uang, misi, skor terbaik)
+<div id="start-screen" class="overlay">
+  <div class="title">SOLMAR</div>
+  <div class="subtitle">KOTA PESISIR &middot; TIGA MISI &middot; SATU SOPIR SEWAAN</div>
+  <div class="panel">
+    Kamu <b>Rook</b>, sopir sewaan di kota fiksi Solmar. Fixer <b>Mara Solano</b> meneleponmu dengan tiga pekerjaan:
+    <b>First Gear</b> ($300), <b>Sunset Run</b> ($500, 90 detik), <b>Dockside</b> ($800).
+    Polisi mengejarmu bila wanted naik — kabur, bersembunyi, atau hadapi mereka.
+    <br><br>
+    <b>Kontrol:</b> WASD gerak &middot; Mouse lihat &middot; Shift lari &middot; E masuk/keluar mobil &middot; F interaksi &middot;
+    Space lompat / rem tangan &middot; Klik tembak &middot; R isi ulang &middot; 1/2 ganti senjata &middot;
+    T telepon Mara &middot; P pause &middot; M mute &middot; R restart (di pause / game over).
   </div>
+  <button id="start-btn" class="big-btn">CLICK TO START</button>
+  <div class="small">Game 3D orisinal buatan prosedural — tanpa aset Rockstar / GTA. Semua suara disintesis.</div>
 </div>
 
-<div class="overlay" id="pause-screen">
-  <h1 style="font-size:56px">PAUSED</h1>
-  <p>Solmar menunggumu, Rook.</p>
-  <button class="big-btn" id="resume-button">▶ LANJUTKAN</button>
-  <p class="hint">P / Esc untuk lanjut • M untuk mute</p>
+<div id="pause-screen" class="overlay">
+  <div class="title" style="font-size:52px;">PAUSE</div>
+  <div class="panel">Istirahat sebentar, Rook. Solmar menunggumu.<br>P — lanjut &middot; R — mulai ulang &middot; M — mute.</div>
+  <button id="resume-btn" class="big-btn">LANJUT</button>
+  <button id="restart-btn" class="big-btn" style="background:#888;">MULAI ULANG</button>
 </div>
 
-<div class="overlay" id="gameover-screen">
-  <h1 style="font-size:56px">GAME OVER</h1>
+<div id="gameover-screen" class="overlay">
+  <div class="title" style="font-size:52px;">GAME OVER</div>
   <div id="gameover-stats"></div>
-  <button class="big-btn" id="restart-button">↻ BANGKIT DI RUMAH SAKIT</button>
-  <p class="hint">Kamu kehilangan 10% uangmu. Polisi Solmar tidak pernah tidur.</p>
+  <button id="again-btn" class="big-btn">COBA LAGI (R)</button>
 </div>
 
 <script src="vendor/three.min.js"></script>

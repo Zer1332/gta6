@@ -1,6 +1,6 @@
 // SOLMAR — random.js
-// RNG deterministik (mulberry32) supaya kota, lalu lintas, dan mode
-// screenshot ?shot=...&seed=1 selalu menghasilkan dunia yang sama.
+// RNG deterministik (mulberry32) supaya mode screenshot ?shot=&seed=
+// selalu menghasilkan kota dan lalu lintas yang sama.
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -13,34 +13,21 @@ export function mulberry32(seed) {
   };
 }
 
-export class Rng {
-  constructor(seed) {
-    this.next = mulberry32(seed);
-  }
-
-  range(min, max) {
-    return min + this.next() * (max - min);
-  }
-
-  int(min, max) {
-    return Math.floor(this.range(min, max + 1));
-  }
-
-  pick(list) {
-    return list[Math.floor(this.next() * list.length)];
-  }
-
-  chance(p) {
-    return this.next() < p;
-  }
-
-  // Acak urutan salinan array (Fisher-Yates).
-  shuffle(list) {
-    const out = list.slice();
-    for (let i = out.length - 1; i > 0; i--) {
-      const j = Math.floor(this.next() * (i + 1));
-      [out[i], out[j]] = [out[j], out[i]];
-    }
-    return out;
-  }
+export function makeRng(seed) {
+  const next = mulberry32(seed);
+  return {
+    next,
+    // Bilangan [min, max).
+    range(min, max) {
+      return min + next() * (max - min);
+    },
+    // Bilangan bulat [min, max].
+    int(min, max) {
+      return Math.floor(min + next() * (max - min + 1));
+    },
+    // Satu elemen acak dari array.
+    pick(arr) {
+      return arr[Math.floor(next() * arr.length)];
+    },
+  };
 }

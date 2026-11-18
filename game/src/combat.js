@@ -1,227 +1,216 @@
 // SOLMAR — combat.js
-// Bertarung: klik menembak (pistol/SMG), R isi ulang, 1/2 ganti senjata,
-// raycast dari kamera, tracer + muzzle flash, dan anggota geng Vulture
-// (HP 60) yang membalas tembakan di dermaga.
+// Menembak: sinar dari KAMERA menembus tengah layar (bukan dari pemain),
+// supaya bidikan sejajar persis dengan yang terlihat di crosshair —
+// ini memperbaiki paralaks third-person: kamera berada di belakang dan
+// di atas pemain, jadi sinar dari posisi pemain akan menembus tanah
+// di depan musuh jarak dekat. Ditambah aim-assist ringan: bila sinar
+// lewat dekat musuh dalam kerucut kecil, tembakan mengunci ke musuh itu.
 
-import { CONFIG } from './config.js';
+export function createCombat(G) {
+  const raycaster = new THREE.Raycaster();
+  const combat = {
+    enemies: [],
+    lastShotAt: -99,
+    reloading: false,
+    reloadUntil: 0,
+    flash: null,
 
-export class Combat {
-  constructor(game) {
-    this.game = game;
-    this.scene = game.scene;
-    this.weapon = 'pistol';
-    this.ammo = CONFIG.pistolMag;
-    this.reserve = Infinity;
-    this.lastShot = 0;
-    this.reloading = false;
-    this.reloadUntil = 0;
-    this.enemies = []; // {mesh, hp, lastShot, walkPhase}
-    this.tracers = [];
-    this.raycaster = new THREE.Raycaster();
-    this.muzzle = new THREE.PointLight(0xffc860, 0, 12);
-    this.scene.add(this.muzzle);
-  }
+    spawnVultures(positions) {
+      this.clearEnemies();
+      positions.forEach(([x, z], i) => {
+        const group = new THREE.Group();
+        const body = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.45, 0.55, 1.2, 10),
+          new THREE.MeshLambertMaterial({ color: 0x5a1a1a })
+        );
+        body.position.y = 1.0;
+        group.add(body);
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(0.32, 12, 10),
+          new THREE.MeshLambertMaterial({ color: 0xd8a077 })
+        );
+        head.position.y = 1.85;
+        group.add(head);
+        // Rompi Vulture: kotak kuning gelap di dada.
+        const vest = new THREE.Mesh(
+          new THREE.BoxGeometry(0.7, 0.6, 0.2),
+          new THREE.MeshLambertMaterial({ color: 0xc8a020 })
+        );
+        vest.position.set(0, 1.15, 0.42);
+        group.add(vest);
+        group.position.set(x, 0, z);
+        G.scene.add(group);
+        this.enemies.push({
+          mesh: group,
+          pos: new THREE.Vector3(x, 0, z),
+          hp: G.config.enemy.hp,
+          alive: true,
+          shootAt: G.time + G.rng.range(0.5, 1.5),
+          id: i,
+        });
+      });
+    },
 
-  magSize() {
-    return this.weapon === 'pistol' ? CONFIG.pistolMag : CONFIG.smgMag;
-  }
+    clearEnemies() {
+      for (const e of this.enemies) G.scene.remove(e.mesh);
+      this.enemies = [];
+    },
 
-  fireRate() {
-    return this.weapon === 'pistol' ? CONFIG.pistolFireRate : CONFIG.smgFireRate;
-  }
+    aliveCount() {
+      return this.enemies.filter((e) => e.alive).length;
+    },
 
-  damage() {
-    return this.weapon === 'pistol' ? CONFIG.pistolDamage : CONFIG.smgDamage;
-  }
+    weapon() {
+      return G.config.weapons[G.player.weapon];
+    },
 
-  switchWeapon(name) {
-    if (name !== 'pistol' && name !== 'smg') return;
-    this.weapon = name;
-    this.ammo = this.magSize();
-    this.reloading = false;
-    this.game.audio.click();
-  }
+    canShoot() {
+      const w = this.weapon();
+      return (
+        G.state === 'playing' &&
+        !this.reloading &&
+        G.time - this.lastShotAt >= w.fireDelay &&
+        G.player.ammo[G.player.weapon] > 0
+      );
+    },
 
-  startReload(now) {
-    if (this.reloading || this.ammo === this.magSize()) return;
-    this.reloading = true;
-    this.reloadUntil = now + CONFIG.reloadTime;
-    this.game.audio.click();
-  }
-
-  // Tembakan dari tengah layar (crosshair).
-  shoot(now) {
-    if (this.game.player.inCar) return;
-    if (this.reloading) return;
-    if (now - this.lastShot < this.fireRate()) return;
-    if (this.ammo <= 0) {
-      this.startReload(now);
-      return;
-    }
-    this.lastShot = now;
-    this.ammo -= 1;
-    this.game.audio.shoot(this.weapon === 'smg');
-    // Menembak di dekat polisi menaikkan wanted.
-    if (this.game.police.cars.length > 0 || this.game.police.officers.length > 0) {
-      this.game.addWanted(1);
-    }
-    const camera = this.game.camera;
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const targets = [];
-    for (const e of this.enemies) targets.push(e.mesh);
-    for (const p of this.game.world.pedestrians) targets.push(p.mesh);
-    const hits = this.raycaster.intersectObjects(targets, true);
-    const buildings = this.raycaster.intersectObjects(this.game.city.buildings, false);
-    let endPoint = null;
-    let hitEnemy = null;
-    let hitPed = null;
-    if (hits.length > 0) {
-      const hit = hits[0];
-      endPoint = hit.point;
-      let obj = hit.object;
-      while (obj && !obj.userData.enemyRef && !obj.userData.pedRef) obj = obj.parent;
-      if (obj && obj.userData.enemyRef) hitEnemy = obj.userData.enemyRef;
-      if (obj && obj.userData.pedRef) hitPed = obj.userData.pedRef;
-      if (buildings.length > 0 && buildings[0].distance < hit.distance) {
-        endPoint = buildings[0].point;
-        hitEnemy = null;
-        hitPed = null;
+    // Tembakan utama. Mengembalikan musuh yang kena (atau null).
+    shoot() {
+      if (!this.canShoot()) {
+        if (G.player.ammo[G.player.weapon] === 0) this.startReload();
+        return null;
       }
-    } else if (buildings.length > 0) {
-      endPoint = buildings[0].point;
-    } else {
-      endPoint = this.raycaster.ray.at(120, new THREE.Vector3());
-    }
-    if (hitEnemy) {
-      hitEnemy.hp -= this.damage();
-      if (hitEnemy.hp <= 0) this.killEnemy(hitEnemy);
-    }
-    if (hitPed) {
-      hitPed.flee = true;
-      hitPed.fleeUntil = now + 6;
-    }
-    // Tracer + muzzle flash.
-    const start = this.game.player.mesh.position.clone();
-    start.y = 1.3;
-    start.add(new THREE.Vector3(Math.sin(this.game.player.camYaw), 0, Math.cos(this.game.player.camYaw)).multiplyScalar(0.5));
-    this.addTracer(start, endPoint);
-    this.muzzle.position.copy(start);
-    this.muzzle.intensity = 6;
-    setTimeout(() => {
-      this.muzzle.intensity = 0;
-    }, 50);
-  }
+      const w = this.weapon();
+      this.lastShotAt = G.time;
+      G.player.ammo[G.player.weapon] -= 1;
+      G.audio.shoot();
 
-  addTracer(from, to) {
-    const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
-    const line = new THREE.Line(
-      geo,
-      new THREE.LineBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.9 }),
-    );
-    this.scene.add(line);
-    this.tracers.push({ line, until: this.game.now + 0.07 });
-  }
+      // Sinar dari kamera melalui tengah layar. Perbarui matriks dunia kamera
+      // dulu: kamera baru saja digerakkan (atau pemain baru berputar) dan
+      // matriksnya baru diperbarui saat render — tanpa ini sinarnya memakai
+      // arah kamera frame sebelumnya dan tembakan meleset.
+      G.camera.updateMatrixWorld(true);
+      raycaster.setFromCamera(new THREE.Vector2(0, 0), G.camera);
+      const dir = raycaster.ray.direction.clone();
+      const origin = raycaster.ray.origin.clone();
 
-  update(dt, now) {
-    // Tracer memudar.
-    for (let i = this.tracers.length - 1; i >= 0; i--) {
-      if (now > this.tracers[i].until) {
-        this.scene.remove(this.tracers[i].line);
-        this.tracers[i].line.geometry.dispose();
-        this.tracers.splice(i, 1);
+      // Aim-assist: cari musuh hidup yang paling dekat dengan sinar.
+      let best = null;
+      let bestScore = 0.16; // radian maksimum dari sinar (~9 derajat)
+      for (const e of this.enemies) {
+        if (!e.alive) continue;
+        const toEnemy = e.pos.clone().setY(1.3).sub(origin);
+        // Jarak tembak diukur dari PENEMBAK (pemain), bukan dari kamera:
+        // kamera third-person 7–10 m di belakang pemain tak boleh
+        // memangkas jangkauan senjata.
+        const distFromPlayer = e.pos.distanceTo(G.player.pos);
+        if (distFromPlayer > w.range) continue;
+        const angle = dir.angleTo(toEnemy.normalize());
+        if (angle < bestScore) {
+          bestScore = angle;
+          best = e;
+        }
       }
-    }
-    if (this.reloading && now >= this.reloadUntil) {
-      this.ammo = this.magSize();
-      this.reloading = false;
-    }
-    // Musuh menembak balik bila pemain dekat dan terlihat.
-    for (const e of this.enemies) {
-      const p = this.game.player.pos;
-      const d = Math.hypot(p.x - e.mesh.position.x, p.z - e.mesh.position.z);
-      e.mesh.rotation.y = Math.atan2(p.x - e.mesh.position.x, p.z - e.mesh.position.z);
-      if (d < 45 && !this.game.player.inCar && this.game.state.mode === 'playing') {
-        if (now - e.lastShot > 1.4) {
-          e.lastShot = now;
-          // Akurasi musuh rendah: 35% kena.
-          if (Math.random() < 0.35) {
-            this.game.player.damage(8, now);
-            this.game.hud.flashDamage();
+      // Kilat moncong singkat di ujung laras (visual).
+      this.muzzleFlash();
+
+      if (best) {
+        best.hp -= w.damage;
+        G.hud.hitmarker();
+        if (best.hp <= 0) {
+          best.alive = false;
+          best.mesh.visible = false;
+          G.hud.banner('Vulture tumbang! Sisa: ' + this.aliveCount(), 2);
+          G.audio.cash();
+          G.missions.onVultureDown();
+        }
+        return best;
+      }
+      // Bila tak kena musuh: cek pejalan kaki lari (tembakan mengusir).
+      for (const ped of G.peds) {
+        const toPed = ped.pos.clone().setY(1.2).sub(origin);
+        if (toPed.length() < w.range && dir.angleTo(toPed.normalize()) < 0.1) {
+          ped.flee = 6;
+          break;
+        }
+      }
+      return null;
+    },
+
+    muzzleFlash() {
+      if (!this.flash) {
+        this.flash = new THREE.PointLight(0xffc860, 0, 12);
+        G.scene.add(this.flash);
+      }
+      const p = G.player;
+      const cam = G.camera;
+      // Posisi kilat: sedikit di depan kamera, searah bidikan.
+      const fwd = new THREE.Vector3();
+      cam.getWorldDirection(fwd);
+      this.flash.position.copy(cam.position).addScaledVector(fwd, 1.6);
+      this.flash.position.y -= 0.4;
+      this.flash.intensity = 6;
+      setTimeout(() => {
+        if (this.flash) this.flash.intensity = 0;
+      }, 50);
+      void p;
+    },
+
+    startReload() {
+      const p = G.player;
+      const w = this.weapon();
+      if (this.reloading || p.reserve[p.weapon] <= 0 || p.ammo[p.weapon] === w.mag) return;
+      this.reloading = true;
+      this.reloadUntil = G.time + 1.1;
+      G.audio.reload();
+    },
+
+    update(dt) {
+      if (this.reloading && G.time >= this.reloadUntil) {
+        const p = G.player;
+        const w = this.weapon();
+        const need = w.mag - p.ammo[p.weapon];
+        const take = Math.min(need, p.reserve[p.weapon]);
+        p.ammo[p.weapon] += take;
+        p.reserve[p.weapon] -= take;
+        this.reloading = false;
+      }
+      // Musuh menembak balik bila pemain dekat dan terlihat.
+      const p = G.player;
+      for (const e of this.enemies) {
+        if (!e.alive) continue;
+        const dist = e.pos.distanceTo(p.pos);
+        e.mesh.lookAt(p.pos.x, 0, p.pos.z);
+        if (dist < G.config.enemy.aggroRange && G.state === 'playing') {
+          // Bergerak mendekat perlahan bila jauh.
+          if (dist > 14) {
+            const dx = p.pos.x - e.pos.x;
+            const dz = p.pos.z - e.pos.z;
+            const len = Math.hypot(dx, dz) || 1;
+            e.pos.x += (dx / len) * 2.2 * dt;
+            e.pos.z += (dz / len) * 2.2 * dt;
+            e.mesh.position.copy(e.pos);
           }
-          this.game.audio.shoot(true);
-        }
-        // Musuh mendekat perlahan bila terlalu jauh.
-        if (d > 18) {
-          const step = 2.2 * dt;
-          e.mesh.position.x += ((p.x - e.mesh.position.x) / d) * step;
-          e.mesh.position.z += ((p.z - e.mesh.position.z) / d) * step;
+          if (G.time >= e.shootAt) {
+            e.shootAt = G.time + G.config.enemy.shootInterval;
+            G.audio.enemyShoot();
+            // Akurasi musuh: kena bila pemain dekat / diam.
+            if (dist < 30 && G.rng.next() < 0.55) {
+              G.playerDamage(G.config.enemy.damage, 'ditembak Vulture');
+            }
+          }
         }
       }
-    }
-  }
+    },
 
-  spawnEnemies(spots) {
-    this.clearEnemies();
-    for (const s of spots) {
-      const mesh = this.makeVultureMesh();
-      mesh.position.set(s.x, 0, s.z);
-      this.scene.add(mesh);
-      const enemy = { mesh, hp: 60, lastShot: 0, walkPhase: 0 };
-      mesh.userData.enemyRef = enemy;
-      this.enemies.push(enemy);
-    }
-  }
-
-  makeVultureMesh() {
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.75, 1.05, 0.45),
-      new THREE.MeshLambertMaterial({ color: 0x8a1a1a }),
-    );
-    body.position.y = 1.05;
-    body.castShadow = true;
-    g.add(body);
-    const head = new THREE.Mesh(
-      new THREE.BoxGeometry(0.42, 0.42, 0.42),
-      new THREE.MeshLambertMaterial({ color: 0xc89878 }),
-    );
-    head.position.y = 1.82;
-    g.add(head);
-    const band = new THREE.Mesh(
-      new THREE.BoxGeometry(0.46, 0.12, 0.46),
-      new THREE.MeshLambertMaterial({ color: 0x1a1a1a }),
-    );
-    band.position.y = 1.95;
-    g.add(band);
-    const legMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.8, 0.3), legMat);
-    legL.position.set(-0.18, 0.4, 0);
-    g.add(legL);
-    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.8, 0.3), legMat);
-    legR.position.set(0.18, 0.4, 0);
-    g.add(legR);
-    const gun = new THREE.Mesh(
-      new THREE.BoxGeometry(0.08, 0.12, 0.5),
-      new THREE.MeshLambertMaterial({ color: 0x141414 }),
-    );
-    gun.position.set(0.45, 1.25, 0.3);
-    g.add(gun);
-    return g;
-  }
-
-  killEnemy(enemy) {
-    const idx = this.enemies.indexOf(enemy);
-    if (idx >= 0) this.enemies.splice(idx, 1);
-    this.scene.remove(enemy.mesh);
-    this.game.hud.showBanner('Satu Vulture tumbang!');
-  }
-
-  enemiesAlive() {
-    return this.enemies.length;
-  }
-
-  clearEnemies() {
-    for (const e of this.enemies) this.scene.remove(e.mesh);
-    this.enemies = [];
-  }
+    // Polisi menabrak pemain jalan kaki: damage kecil, sekali per 0.8 detik.
+    policeRam(dt) {
+      if (!this._ramAt || G.time - this._ramAt > 0.8) {
+        this._ramAt = G.time;
+        G.playerDamage(8, 'ditabrak polisi');
+      }
+      void dt;
+    },
+  };
+  return combat;
 }

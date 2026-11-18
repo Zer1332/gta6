@@ -1,246 +1,203 @@
 // SOLMAR — vehicles.js
-// Mesh mobil (bodi, kabin, roda, lampu), lalu lintas sipil yang mengikuti
-// jalan grid, dan fisika arcade mobil pemain (gas, rem, setir, rem tangan).
+// Mobil: mesh prosedural, lalu lintas sipil yang mengikuti rute lurus di
+// jalan grid, mobil parkir, dan fisika mengemudi arcade untuk mobil pemain.
 
-import { CONFIG } from './config.js';
-
-const CAR_COLORS = [0xc0c0c8, 0x30343a, 0x8a2a2a, 0x2a4a8a, 0xd0a030, 0x3a6a3a, 0x7a3a6a, 0xd0d0d0];
-
-// Satu mobil: bodi + kabin + 4 roda + lampu. Mengembalikan Group dengan
-// referensi roda untuk animasi putaran.
-export function makeCarMesh(color, isPolice = false) {
-  const g = new THREE.Group();
-  g.name = isPolice ? 'police-car' : 'car';
-  const bodyMat = new THREE.MeshLambertMaterial({ color: isPolice ? 0x14142a : color });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2, 0.7, 4.4), bodyMat);
-  body.position.y = 0.65;
-  body.castShadow = true;
-  g.add(body);
+export function makeCarMesh(color, isPolice) {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshLambertMaterial({ color });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.75, 4.6), bodyMat);
+  body.position.y = 0.75;
+  group.add(body);
   const cabin = new THREE.Mesh(
-    new THREE.BoxGeometry(1.7, 0.6, 2.2),
-    new THREE.MeshLambertMaterial({ color: 0x1a2530 }),
+    new THREE.BoxGeometry(1.8, 0.65, 2.2),
+    new THREE.MeshLambertMaterial({ color: 0x1a2530 })
   );
-  cabin.position.set(0, 1.25, -0.2);
-  cabin.castShadow = true;
-  g.add(cabin);
-  const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10);
+  cabin.position.set(0, 1.35, -0.2);
+  group.add(cabin);
+  const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 10);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x141414 });
-  const wheels = [];
-  for (const [wx, wz] of [[-1, 1.5], [1, 1.5], [-1, -1.5], [1, -1.5]]) {
+  for (const [wx, wz] of [[-1.0, 1.5], [1.0, 1.5], [-1.0, -1.5], [1.0, -1.5]]) {
     const w = new THREE.Mesh(wheelGeo, wheelMat);
     w.rotation.z = Math.PI / 2;
-    w.position.set(wx, 0.38, wz);
-    g.add(w);
-    wheels.push(w);
+    w.position.set(wx, 0.42, wz);
+    group.add(w);
   }
-  // Lampu depan kuning, belakang merah.
-  const headMat = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
+  // Lampu depan.
+  const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff2b0 });
   for (const wx of [-0.7, 0.7]) {
-    const h = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.15, 0.1), headMat);
-    h.position.set(wx, 0.7, 2.22);
-    g.add(h);
-  }
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0xd02020 });
-  for (const wx of [-0.7, 0.7]) {
-    const t = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.15, 0.1), tailMat);
-    t.position.set(wx, 0.7, -2.22);
-    g.add(t);
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.1), lightMat);
+    l.position.set(wx, 0.8, 2.32);
+    group.add(l);
   }
   if (isPolice) {
-    // Lightbar merah-biru di atap.
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.18, 0.4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    bar.position.set(0, 1.65, -0.2);
-    g.add(bar);
-    const red = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.2, 0.42), new THREE.MeshBasicMaterial({ color: 0xff2020 }));
-    red.position.set(-0.3, 1.65, -0.2);
-    g.add(red);
-    const blue = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.2, 0.42), new THREE.MeshBasicMaterial({ color: 0x2040ff }));
-    blue.position.set(0.3, 1.65, -0.2);
-    g.add(blue);
-    g.userData.lightbar = { red, blue };
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.18, 0.5), new THREE.MeshBasicMaterial({ color: 0x2233ff }));
+    bar.position.set(0, 1.78, -0.2);
+    group.add(bar);
+    const bar2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.18, 0.52), new THREE.MeshBasicMaterial({ color: 0xff2222 }));
+    bar2.position.set(0.35, 1.78, -0.2);
+    group.add(bar2);
   }
-  g.userData.wheels = wheels;
-  return g;
+  return group;
 }
 
-// Satu mobil lalu lintas: berjalan di satu lajur jalan, belok di
-// persimpangan, berhenti bila ada mobil di depan.
-export class TrafficCar {
-  constructor(scene, rng, x, z, heading) {
-    this.mesh = makeCarMesh(rng.pick(CAR_COLORS));
-    this.mesh.position.set(x, 0, z);
-    this.mesh.rotation.y = heading;
-    scene.add(this.mesh);
-    this.heading = heading;
-    this.speed = rng.range(CONFIG.trafficSpeedMin, CONFIG.trafficSpeedMax);
-    this.targetSpeed = this.speed;
-    this.wait = 0;
-    this.rng = rng;
-  }
+export function createCar(G, opts) {
+  const car = {
+    mesh: makeCarMesh(opts.color || 0x888888, !!opts.isPolice),
+    pos: new THREE.Vector3(opts.x || 0, 0, opts.z || 0),
+    yaw: opts.yaw || 0,
+    speed: 0,
+    steer: 0,
+    isPolice: !!opts.isPolice,
+    isPlayerCar: false,
+    parked: !!opts.parked,
+    missionSedan: !!opts.missionSedan,
+    hp: 100,
+    // Untuk lalu lintas: rute lurus.
+    routeAxis: opts.routeAxis || 'x',
+    routeLane: opts.routeLane || 0,
+    routeDir: opts.routeDir || 1,
+    routeSpeed: opts.routeSpeed || 8,
+    id: opts.id || 0,
+  };
+  car.mesh.position.copy(car.pos);
+  car.mesh.rotation.y = car.yaw;
+  G.scene.add(car.mesh);
+  return car;
+}
 
-  // Arah maju (vektor satuan) dari heading.
-  forward() {
-    return { x: Math.sin(this.heading), z: Math.cos(this.heading) };
+export function spawnTraffic(G) {
+  const colors = [0xc0c0c0, 0x404040, 0x8a2a2a, 0x2a4a8a, 0xc0a030, 0x4a6a3a, 0x7a7a8a, 0x9a5a2a];
+  const roads = [];
+  for (let c = -340; c <= 340; c += 60) roads.push(c);
+  const cars = [];
+  for (let i = 0; i < G.config.trafficCount; i++) {
+    const axis = G.rng.next() < 0.5 ? 'x' : 'z';
+    const lane = G.rng.pick(roads);
+    const along = G.rng.range(-380, 280);
+    const dir = G.rng.next() < 0.5 ? 1 : -1;
+    const car = createCar(G, {
+      color: G.rng.pick(colors),
+      x: axis === 'x' ? along : lane + (dir > 0 ? 3 : -3),
+      z: axis === 'x' ? lane + (dir > 0 ? 3 : -3) : along,
+      yaw: axis === 'x' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : dir > 0 ? 0 : Math.PI,
+      routeAxis: axis,
+      routeLane: lane,
+      routeDir: dir,
+      routeSpeed: G.rng.range(6, 11),
+      id: i,
+    });
+    cars.push(car);
   }
+  return cars;
+}
 
-  update(dt, others) {
-    if (this.wait > 0) {
-      this.wait -= dt;
-      this.speed = Math.max(0, this.speed - 20 * dt);
+export function updateTraffic(G, dt) {
+  for (const car of G.traffic) {
+    const step = car.routeSpeed * car.routeDir * dt;
+    if (car.routeAxis === 'x') {
+      car.pos.x += step;
+      if (car.pos.x > 390) car.pos.x = -390;
+      if (car.pos.x < -390) car.pos.x = 390;
     } else {
-      // Pelan bila ada mobil lain tepat di depan.
-      const f = this.forward();
-      let blocked = false;
-      for (const o of others) {
-        if (o === this) continue;
-        const dx = o.mesh.position.x - this.mesh.position.x;
-        const dz = o.mesh.position.z - this.mesh.position.z;
-        const along = dx * f.x + dz * f.z;
-        const side = Math.abs(dx * f.z - dz * f.x);
-        if (along > 0 && along < 14 && side < 3) {
-          blocked = true;
-          break;
-        }
-      }
-      this.targetSpeed = blocked ? 0 : this.speed;
-      this.speed += (this.targetSpeed - this.speed) * Math.min(1, dt * 2);
+      car.pos.z += step;
+      if (car.pos.z > 290) car.pos.z = -390;
+      if (car.pos.z < -390) car.pos.z = 290;
     }
-    const f = this.forward();
-    this.mesh.position.x += f.x * this.speed * dt;
-    this.mesh.position.z += f.z * this.speed * dt;
-    this.mesh.rotation.y = this.heading;
-    // Belok di persimpangan (kelipatan 100) dengan peluang kecil.
-    const px = this.mesh.position.x;
-    const pz = this.mesh.position.z;
-    const nearX = Math.abs(((px % 100) + 100) % 100) < 1.2 || Math.abs(((px % 100) + 100) % 100) > 98.8;
-    const nearZ = Math.abs(((pz % 100) + 100) % 100) < 1.2 || Math.abs(((pz % 100) + 100) % 100) > 98.8;
-    if ((nearX || nearZ) && this.rng.next() < dt * 0.6) {
-      this.heading += this.rng.pick([-Math.PI / 2, Math.PI / 2]);
-      this.heading = Math.round(this.heading / (Math.PI / 2)) * (Math.PI / 2);
-    }
-    // Putar balik di tepi kota.
-    if (Math.abs(px) > 395 || Math.abs(pz) > 395) {
-      this.heading += Math.PI;
-      this.mesh.position.x = Math.max(-390, Math.min(390, px));
-      this.mesh.position.z = Math.max(-390, Math.min(390, pz));
-    }
-    // Putar roda.
-    for (const w of this.mesh.userData.wheels) w.rotation.x += (this.speed * dt) / 0.38;
+    car.mesh.position.copy(car.pos);
+    car.mesh.rotation.y = car.yaw;
   }
 }
 
-export class Traffic {
-  constructor(scene, rng) {
-    this.scene = scene;
-    this.rng = rng;
-    this.cars = [];
+// Fisika mengemudi arcade untuk mobil yang dikendarai pemain.
+export function updatePlayerCar(G, dt) {
+  const car = G.player.car;
+  if (!car) return;
+  const input = G.input;
+  const mv = input.moveVector();
+  const cfg = G.config.car;
+  const forward = mv.y; // W = 1, S = -1
+  const steerInput = -mv.x; // A = kiri
+
+  if (forward > 0) {
+    car.speed += cfg.accel * dt;
+  } else if (forward < 0) {
+    car.speed -= (car.speed > 0.5 ? cfg.brake : cfg.accel * 0.6) * dt;
+  } else {
+    car.speed -= Math.sign(car.speed) * cfg.grip * dt * 0.5;
+    if (Math.abs(car.speed) < 0.3) car.speed = 0;
+  }
+  if (input.down('Space')) {
+    car.speed -= Math.sign(car.speed) * cfg.brake * dt; // rem tangan
+  }
+  const maxF = car.isPolice ? cfg.policeMaxSpeed : cfg.maxSpeed;
+  car.speed = Math.max(-cfg.reverseMax, Math.min(maxF, car.speed));
+
+  const steerTarget = steerInput * cfg.steer * Math.min(1, Math.abs(car.speed) / 8);
+  car.steer += (steerTarget - car.steer) * Math.min(1, dt * 8);
+  if (Math.abs(car.speed) > 0.2) {
+    car.yaw += car.steer * dt * Math.sign(car.speed);
   }
 
-  spawn(count) {
-    const roads = [];
-    for (let c = -400; c <= 400; c += 100) roads.push(c);
-    for (let i = 0; i < count; i++) {
-      const alongRoad = this.rng.chance(0.5);
-      const road = this.rng.pick(roads);
-      const lane = this.rng.pick([-3.5, 3.5]);
-      const along = this.rng.range(-390, 390);
-      const heading = this.rng.pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]);
-      let x;
-      let z;
-      if (alongRoad) {
-        x = road + lane;
-        z = along;
-      } else {
-        x = along;
-        z = road + lane;
-      }
-      const car = new TrafficCar(this.scene, this.rng, x, z, heading);
-      this.cars.push(car);
-    }
-    return this;
+  const nx = car.pos.x + Math.sin(car.yaw) * car.speed * dt;
+  const nz = car.pos.z + Math.cos(car.yaw) * car.speed * dt;
+  // Tabrakan gedung: geser keluar, perlambat.
+  const hit = G.collide(nx, nz, 2.4);
+  if (hit) {
+    car.pos.x = hit.x;
+    car.pos.z = hit.z;
+    if (Math.abs(car.speed) > 12) G.audio.crash();
+    car.speed *= 0.4;
+  } else {
+    car.pos.x = nx;
+    car.pos.z = nz;
   }
+  // Batas dunia.
+  car.pos.x = Math.max(-395, Math.min(395, car.pos.x));
+  car.pos.z = Math.max(-395, Math.min(295, car.pos.z));
 
-  update(dt, playerCar) {
-    const all = this.cars;
-    for (const c of all) c.update(dt, all);
-    // Tabrakan ringan dengan mobil pemain: dorong dan kurangi kecepatan.
-    if (playerCar) {
-      for (const c of all) {
-        const dx = c.mesh.position.x - playerCar.mesh.position.x;
-        const dz = c.mesh.position.z - playerCar.mesh.position.z;
-        const d = Math.hypot(dx, dz);
-        if (d < 4 && d > 0.01) {
-          const push = (4 - d) / 2;
-          c.mesh.position.x += (dx / d) * push;
-          c.mesh.position.z += (dz / d) * push;
-          playerCar.speed = Math.max(0, playerCar.speed - 8 * dt);
-          playerCar.health = Math.max(0, playerCar.health - 6 * dt);
-        }
+  car.mesh.position.copy(car.pos);
+  car.mesh.rotation.y = car.yaw;
+  // Roda depan ikut setir (visual sederhana: miringkan seluruh mobil sedikit).
+  car.mesh.rotation.z = -car.steer * 0.04 * Math.sign(car.speed || 1);
+  // Posisi pemain SELALU mengikuti mobil yang dikendarainya — kamera,
+  // misi, dan polisi semua membaca p.pos.
+  G.player.pos.copy(car.pos);
+
+  // Ngebut dekat polisi menaikkan wanted.
+  if (Math.abs(car.speed) > 24) {
+    for (const p of G.police.cars) {
+      if (p.mesh.position.distanceTo(car.pos) < 40) {
+        G.police.raiseWanted(1, 'ngebut');
+        break;
       }
     }
   }
 }
 
-// Mobil yang dikendarai pemain: fisika arcade sederhana.
-export class PlayerCar {
-  constructor(scene, mesh) {
-    this.scene = scene;
-    this.mesh = mesh;
-    this.speed = 0;
-    this.heading = 0;
-    this.health = CONFIG.carHealth;
-    this.steer = 0;
+// Mobil parkir yang bisa dicuri (termasuk sedan misi 1).
+export function spawnParkedCars(G) {
+  const parked = [];
+  const spots = [
+    { x: 180, z: -120, color: 0x2a6ac0, missionSedan: true },
+    { x: 60, z: -60, color: 0xc0c0c0 },
+    { x: -60, z: 60, color: 0x8a2a2a },
+    { x: 120, z: 120, color: 0x2a4a8a },
+    { x: -180, z: -60, color: 0xc0a030 },
+    { x: 0, z: -180, color: 0x4a6a3a },
+    { x: -120, z: -180, color: 0x7a7a8a },
+    { x: 240, z: 60, color: 0x9a5a2a },
+  ];
+  for (const s of spots) {
+    const car = createCar(G, {
+      color: s.color,
+      x: s.x,
+      z: s.z,
+      yaw: G.rng.range(0, Math.PI * 2),
+      parked: true,
+      missionSedan: !!s.missionSedan,
+      id: 100 + parked.length,
+    });
+    parked.push(car);
   }
-
-  place(x, z, heading) {
-    this.mesh.position.set(x, 0, z);
-    this.heading = heading;
-    this.mesh.rotation.y = heading;
-    this.speed = 0;
-    this.health = CONFIG.carHealth;
-  }
-
-  update(dt, input, city) {
-    const throttle = input.isDown('KeyW') || input.isDown('ArrowUp') ? 1 : 0;
-    const brake = input.isDown('KeyS') || input.isDown('ArrowDown') ? 1 : 0;
-    const handbrake = input.isDown('Space');
-    const steerIn = (input.isDown('KeyA') || input.isDown('ArrowLeft') ? 1 : 0)
-      - (input.isDown('KeyD') || input.isDown('ArrowRight') ? 1 : 0);
-    const targetSteer = steerIn * (this.speed >= 0 ? 1 : -1);
-    this.steer += (targetSteer - this.steer) * Math.min(1, dt * 8);
-
-    if (throttle) this.speed += CONFIG.carAccel * dt;
-    if (brake) {
-      if (this.speed > 0.5) this.speed -= CONFIG.carBrake * dt;
-      else this.speed -= CONFIG.carAccel * 0.5 * dt;
-    }
-    if (!throttle && !brake) this.speed -= Math.sign(this.speed) * Math.min(Math.abs(this.speed), 6 * dt);
-    if (handbrake) this.speed -= Math.sign(this.speed) * Math.min(Math.abs(this.speed), 25 * dt);
-    this.speed = Math.max(-12, Math.min(CONFIG.carTopSpeed, this.speed));
-
-    const turnRate = CONFIG.carTurn * this.steer * Math.min(1, Math.abs(this.speed) / 10) * (handbrake ? 1.6 : 1);
-    this.heading += turnRate * Math.sign(this.speed) * dt;
-
-    const fx = Math.sin(this.heading);
-    const fz = Math.cos(this.heading);
-    let nx = this.mesh.position.x + fx * this.speed * dt;
-    let nz = this.mesh.position.z + fz * this.speed * dt;
-    const before = { x: nx, z: nz };
-    const hit = city.collideCircle(nx, nz, 2.2);
-    if (Math.hypot(hit.x - before.x, hit.z - before.z) > 0.01) {
-      this.speed *= 0.4;
-      this.health = Math.max(0, this.health - 4 * dt);
-    }
-    const clamped = city.clampToLand(hit.x, hit.z);
-    this.mesh.position.x = clamped.x;
-    this.mesh.position.z = clamped.z;
-    this.mesh.rotation.y = this.heading;
-    // Badan mobil miring sedikit saat belok.
-    this.mesh.rotation.z = -this.steer * 0.04 * Math.min(1, Math.abs(this.speed) / 15);
-    for (const w of this.mesh.userData.wheels) w.rotation.x += (this.speed * dt) / 0.38;
-  }
-
-  kmh() {
-    return Math.abs(this.speed) * 3.6;
-  }
+  return parked;
 }

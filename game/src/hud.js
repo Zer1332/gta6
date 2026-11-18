@@ -1,218 +1,210 @@
 // SOLMAR — hud.js
-// HUD: bar nyawa, uang, bintang wanted, objektif misi, kecepatan, amunisi,
-// crosshair, minimap (canvas 2D di pojok kanan atas), banner, panggilan
-// telepon Mara, layar awal, pause, dan game over.
+// Semua DOM: bar nyawa, uang, bintang wanted, objektif, kecepatan, amunisi,
+// minimap canvas, crosshair, banner, telepon Mara, layar awal/pause/game over.
 
-export class Hud {
-  constructor(game) {
-    this.game = game;
-    this.el = {};
-    const ids = [
-      'hud', 'health-fill', 'health-num', 'money', 'wanted', 'objective',
-      'speed', 'ammo', 'weapon', 'timer', 'banner', 'phone', 'phone-text',
-      'start-screen', 'pause-screen', 'gameover-screen', 'gameover-stats',
-      'crosshair', 'damage-flash', 'minimap', 'mission-list', 'interact',
-    ];
-    for (const id of ids) this.el[id] = document.getElementById(id);
-    this.mapCtx = this.el.minimap.getContext('2d');
-    this.bannerTimer = null;
-    this.phoneTimer = null;
-  }
+export function createHud(G) {
+  const $ = (id) => document.getElementById(id);
+  const hud = {
+    el: {
+      start: $('start-screen'),
+      hud: $('hud'),
+      hpFill: $('hp-fill'),
+      hpText: $('hp-text'),
+      money: $('money'),
+      stars: $('stars'),
+      objective: $('objective'),
+      timer: $('timer'),
+      speed: $('speed'),
+      ammo: $('ammo'),
+      weapon: $('weapon'),
+      minimap: $('minimap'),
+      crosshair: $('crosshair'),
+      banner: $('banner'),
+      phone: $('phone'),
+      phoneText: $('phone-text'),
+      phoneName: $('phone-name'),
+      pause: $('pause-screen'),
+      gameover: $('gameover-screen'),
+      gameoverStats: $('gameover-stats'),
+      damage: $('damage-flash'),
+      hitmarker: $('hitmarker'),
+      prompt: $('prompt'),
+      muteBtn: $('mute-btn'),
+    },
+    bannerUntil: 0,
+    phoneUntil: 0,
+    mmCtx: null,
 
-  showHud(show) {
-    this.el.hud.style.display = show ? 'block' : 'none';
-  }
+    init() {
+      if (this.el.minimap) this.mmCtx = this.el.minimap.getContext('2d');
+      if (this.el.muteBtn) {
+        this.el.muteBtn.addEventListener('click', () => G.toggleMute());
+      }
+    },
 
-  setHealth(hp) {
-    const pct = Math.max(0, Math.min(100, hp));
-    this.el['health-fill'].style.width = `${pct}%`;
-    this.el['health-num'].textContent = Math.ceil(pct);
-    this.el['health-fill'].style.background = pct > 50 ? '#4caf50' : pct > 25 ? '#ff9800' : '#f44336';
-  }
+    banner(text, secs) {
+      if (!this.el.banner) return;
+      this.el.banner.textContent = text;
+      this.el.banner.style.opacity = '1';
+      this.bannerUntil = G.time + (secs || 3);
+    },
 
-  setMoney(money) {
-    this.el.money.textContent = `$${Math.floor(money).toLocaleString('en-US')}`;
-  }
+    showPhone(text, name) {
+      if (!this.el.phone) return;
+      this.el.phoneText.textContent = text;
+      this.el.phoneName.textContent = name || 'Mara Solano';
+      this.el.phone.style.display = 'block';
+      this.phoneUntil = G.time + 6;
+    },
 
-  setWanted(wanted) {
-    let stars = '';
-    for (let i = 0; i < 5; i++) stars += i < wanted ? '★' : '☆';
-    this.el.wanted.textContent = stars;
-    this.el.wanted.style.color = wanted > 0 ? '#ffd24a' : '#888888';
-  }
+    flashDamage() {
+      if (!this.el.damage) return;
+      this.el.damage.style.opacity = '0.55';
+      setTimeout(() => {
+        this.el.damage.style.opacity = '0';
+      }, 180);
+    },
 
-  setObjective(text) {
-    this.el.objective.textContent = text;
-  }
+    hitmarker() {
+      if (!this.el.hitmarker) return;
+      this.el.hitmarker.style.opacity = '1';
+      setTimeout(() => {
+        this.el.hitmarker.style.opacity = '0';
+      }, 120);
+    },
 
-  setSpeed(kmh, inCar) {
-    this.el.speed.textContent = inCar ? `${Math.round(kmh)} km/h` : '';
-  }
+    showStart() {
+      this.el.start.style.display = 'flex';
+      this.el.hud.style.display = 'none';
+      this.el.pause.style.display = 'none';
+      this.el.gameover.style.display = 'none';
+    },
 
-  setAmmo(ammo, mag, weapon, reloading) {
-    this.el.ammo.textContent = reloading ? 'RELOAD...' : `${ammo} / ${mag}`;
-    this.el.weapon.textContent = weapon === 'pistol' ? 'PISTOL' : 'SMG';
-  }
+    showPlaying() {
+      this.el.start.style.display = 'none';
+      this.el.hud.style.display = 'block';
+      this.el.pause.style.display = 'none';
+      this.el.gameover.style.display = 'none';
+    },
 
-  setTimer(seconds) {
-    if (seconds === null || seconds === undefined) {
-      this.el.timer.style.display = 'none';
-      return;
-    }
-    this.el.timer.style.display = 'block';
-    this.el.timer.textContent = `⏱ ${seconds}s`;
-    this.el.timer.style.color = seconds <= 15 ? '#ff5040' : '#ffffff';
-  }
+    showPause() {
+      this.el.pause.style.display = 'flex';
+    },
 
-  showCrosshair(show) {
-    this.el.crosshair.style.display = show ? 'block' : 'none';
-  }
+    showGameOver(statsText) {
+      this.el.gameoverStats.textContent = statsText;
+      this.el.gameover.style.display = 'flex';
+      this.el.hud.style.display = 'none';
+    },
 
-  showInteract(text) {
-    if (!text) {
-      this.el.interact.style.display = 'none';
-      return;
-    }
-    this.el.interact.style.display = 'block';
-    this.el.interact.textContent = text;
-  }
+    update() {
+      const p = G.player;
+      const m = G.missions;
+      if (this.el.hpFill) this.el.hpFill.style.width = Math.max(0, p.hp) + '%';
+      if (this.el.hpText) this.el.hpText.textContent = Math.ceil(Math.max(0, p.hp)) + ' HP';
+      if (this.el.money) this.el.money.textContent = '$' + p.money;
+      if (this.el.stars) {
+        let s = '';
+        for (let i = 0; i < 5; i++) s += i < G.police.wanted ? '★' : '☆';
+        this.el.stars.textContent = s;
+        this.el.stars.style.color = G.police.wanted > 0 ? '#ff4444' : '#888';
+      }
+      if (this.el.objective) this.el.objective.textContent = m.objective;
+      if (this.el.timer) {
+        this.el.timer.textContent =
+          m.stage === 'active' && m.index === 1 && m.timer > 0 ? '⏱ ' + Math.ceil(m.timer) + ' dtk' : '';
+      }
+      if (this.el.speed) {
+        const v = p.car ? Math.abs(p.car.speed) * 3.6 : 0;
+        this.el.speed.textContent = p.car ? Math.round(v) + ' km/j' : '';
+      }
+      if (this.el.ammo) {
+        const w = G.combat.weapon();
+        this.el.ammo.textContent = G.combat.reloading
+          ? 'Isi ulang…'
+          : p.ammo[p.weapon] + ' / ' + p.reserve[p.weapon];
+      }
+      if (this.el.weapon) this.el.weapon.textContent = G.combat.weapon().name;
+      if (this.el.crosshair) {
+        this.el.crosshair.style.display = G.state === 'playing' && !p.car ? 'block' : 'none';
+      }
+      if (this.el.banner && G.time > this.bannerUntil) this.el.banner.style.opacity = '0';
+      if (this.el.phone && G.time > this.phoneUntil) this.el.phone.style.display = 'none';
+      // Prompt interaksi kontekstual.
+      if (this.el.prompt) {
+        let txt = '';
+        if (G.state === 'playing' && !p.car) {
+          const car = G.nearestCar(4.5);
+          if (car) txt = 'E — Masuk mobil' + (car.missionSedan ? ' (sedan target)' : '');
+          else if (m.stage === 'active' && m.index === 1 && m.stageDetail === 'pickup') {
+            const def = m.def();
+            const d = Math.hypot(p.pos.x - def.packagePos[0], p.pos.z - def.packagePos[1]);
+            if (d <= 10) txt = 'F — Ambil paket (atau mendekat)';
+          }
+        } else if (G.state === 'playing' && p.car) {
+          txt = 'E — Keluar mobil';
+        }
+        this.el.prompt.textContent = txt;
+        this.el.prompt.style.display = txt ? 'block' : 'none';
+      }
+      this.drawMinimap();
+    },
 
-  showBanner(text, ms = 3500) {
-    this.el.banner.textContent = text;
-    this.el.banner.style.display = 'block';
-    clearTimeout(this.bannerTimer);
-    this.bannerTimer = setTimeout(() => {
-      this.el.banner.style.display = 'none';
-    }, ms);
-  }
-
-  showPhone(text, ms = 6000) {
-    this.el['phone-text'].textContent = text;
-    this.el.phone.style.display = 'block';
-    clearTimeout(this.phoneTimer);
-    this.phoneTimer = setTimeout(() => {
-      this.el.phone.style.display = 'none';
-    }, ms);
-  }
-
-  flashDamage() {
-    this.el['damage-flash'].style.opacity = '0.45';
-    setTimeout(() => {
-      this.el['damage-flash'].style.opacity = '0';
-    }, 150);
-  }
-
-  showStart(missionsDone) {
-    this.el['start-screen'].style.display = 'flex';
-    const items = ['1. First Gear — curi sedan, antar ke garasi ($300)',
-      '2. Sunset Run — antar paket ke dermaga, 90 detik ($500)',
-      '3. Dockside — kalahkan 3 Vulture di dermaga ($800)'];
-    this.el['mission-list'].innerHTML = items
-      .map((t, i) => `<li>${missionsDone[i] ? '✓ ' : ''}${t}</li>`)
-      .join('');
-  }
-
-  hideStart() {
-    this.el['start-screen'].style.display = 'none';
-  }
-
-  showPause(show) {
-    this.el['pause-screen'].style.display = show ? 'flex' : 'none';
-  }
-
-  showGameOver(stats) {
-    this.el['gameover-stats'].innerHTML = stats;
-    this.el['gameover-screen'].style.display = 'flex';
-  }
-
-  hideGameOver() {
-    this.el['gameover-screen'].style.display = 'none';
-  }
-
-  // Minimap: jalan grid, pemain (panah), penanda misi, polisi, mobil.
-  drawMinimap() {
-    const ctx = this.mapCtx;
-    const S = 180;
-    const scale = S / 900; // kota 800 + margin
-    const toMap = (x, z) => [S / 2 + x * scale, S / 2 + z * scale];
-    ctx.clearRect(0, 0, S, S);
-    ctx.fillStyle = 'rgba(20, 24, 30, 0.85)';
-    ctx.fillRect(0, 0, S, S);
-    // Air di timur.
-    ctx.fillStyle = '#1e5f7a';
-    const [wx] = toMap(405, 0);
-    ctx.fillRect(wx, 0, S - wx, S);
-    // Jalan.
-    ctx.strokeStyle = '#5a5a62';
-    ctx.lineWidth = 3;
-    for (let c = -400; c <= 400; c += 100) {
-      const [x1, y1] = toMap(c, -400);
-      const [x2, y2] = toMap(c, 400);
+    drawMinimap() {
+      const ctx = this.mmCtx;
+      if (!ctx) return;
+      const W = 180;
+      const H = 180;
+      const S = G.config.worldSize;
+      const toX = (x) => ((x + S / 2) / S) * W;
+      const toY = (z) => ((z + S / 2) / S) * H;
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#16241a';
+      ctx.fillRect(0, 0, W, H);
+      // Laut.
+      ctx.fillStyle = '#1a4a6a';
+      ctx.fillRect(0, toY(G.config.waterZ), W, H - toY(G.config.waterZ));
+      // Jalan grid.
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 2;
+      for (let c = -340; c <= 340; c += 60) {
+        ctx.beginPath();
+        ctx.moveTo(toX(c), 0);
+        ctx.lineTo(toX(c), H);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, toY(c));
+        ctx.lineTo(W, toY(c));
+        ctx.stroke();
+      }
+      const dot = (x, z, color, r) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(toX(x), toY(z), r, 0, Math.PI * 2);
+        ctx.fill();
+      };
+      // Penanda misi.
+      if (G.missions.markerPos) dot(G.missions.markerPos[0], G.missions.markerPos[1], '#ffd23a', 5);
+      // Polisi.
+      for (const c of G.police.cars) dot(c.pos.x, c.pos.z, '#3a6aff', 3);
+      // Vulture.
+      for (const e of G.combat.enemies) if (e.alive) dot(e.pos.x, e.pos.z, '#ff2222', 3.5);
+      // Lalu lintas.
+      for (const c of G.traffic) dot(c.pos.x, c.pos.z, '#999', 1.6);
+      // Pemain: panah putih.
+      const p = G.player;
+      ctx.save();
+      ctx.translate(toX(p.pos.x), toY(p.pos.z));
+      ctx.rotate(Math.atan2(Math.sin(p.yaw), Math.cos(p.yaw)) + Math.PI);
+      ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-      const [hx1, hy1] = toMap(-400, c);
-      const [hx2, hy2] = toMap(400, c);
-      ctx.beginPath();
-      ctx.moveTo(hx1, hy1);
-      ctx.lineTo(hx2, hy2);
-      ctx.stroke();
-    }
-    // Dermaga.
-    ctx.fillStyle = '#6a4a2a';
-    const [px, py] = toMap(400, 142);
-    ctx.fillRect(px, py, (70) * scale, 16 * scale);
-    // Mobil lalu lintas (titik abu-abu).
-    ctx.fillStyle = '#c0c0c8';
-    for (const c of this.game.traffic.cars) {
-      const [mx, my] = toMap(c.mesh.position.x, c.mesh.position.z);
-      ctx.fillRect(mx - 1, my - 1, 2, 2);
-    }
-    // Polisi (titik biru-merah).
-    ctx.fillStyle = '#4080ff';
-    for (const c of this.game.police.cars) {
-      const [mx, my] = toMap(c.mesh.position.x, c.mesh.position.z);
-      ctx.beginPath();
-      ctx.arc(mx, my, 3, 0, Math.PI * 2);
+      ctx.moveTo(0, -7);
+      ctx.lineTo(5, 5);
+      ctx.lineTo(-5, 5);
+      ctx.closePath();
       ctx.fill();
-    }
-    // Penanda misi (bintang kuning berdenyut).
-    if (this.game.missions.markerPos) {
-      const [mx, my] = toMap(this.game.missions.markerPos.x, this.game.missions.markerPos.z);
-      const r = 4 + Math.sin(this.game.now * 4) * 1.5;
-      ctx.fillStyle = '#ffd24a';
-      ctx.beginPath();
-      ctx.arc(mx, my, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-    // Pemain: panah hijau menghadap arah kamera/mobil.
-    const p = this.game.player.pos;
-    const [mx, my] = toMap(p.x, p.z);
-    const heading = this.game.player.inCar ? this.game.player.inCar.heading : this.game.player.camYaw;
-    ctx.save();
-    ctx.translate(mx, my);
-    ctx.rotate(-heading + Math.PI);
-    ctx.fillStyle = '#4caf50';
-    ctx.beginPath();
-    ctx.moveTo(0, -7);
-    ctx.lineTo(5, 6);
-    ctx.lineTo(-5, 6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.restore();
-    // Bingkai + utara.
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(1, 1, S - 2, S - 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.fillText('N', S - 14, 14);
-  }
+      ctx.restore();
+    },
+  };
+  return hud;
 }

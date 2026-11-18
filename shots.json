@@ -1,1 +1,1 @@
-{"shots":[{"file":"cover.jpg","height":720,"mode":"start","width":1280},{"file":"drive.jpg","height":720,"mode":"drive","width":1280},{"file":"chase.jpg","height":720,"mode":"chase","width":1280},{"file":"mission.jpg","height":720,"mode":"mission","width":1280}]}
+[{"name":"1-start.jpg","query":"?shot=start&seed=1"},{"name":"2-drive.jpg","query":"?shot=drive&seed=1"},{"name":"3-chase.jpg","query":"?shot=chase&seed=1"},{"name":"4-mission.jpg","query":"?shot=mission&seed=1"}]

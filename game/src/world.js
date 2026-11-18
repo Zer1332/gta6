@@ -1,134 +1,330 @@
 // SOLMAR — world.js
-// Pejalan kaki di trotoar (lari saat ada tembakan) dan siklus siang-malam:
-// matahari senja yang perlahan bergerak, langit dan kabut berubah warna,
-// lampu jalan menyala saat gelap.
+// Lem game: merakit semua modul, state machine (start/playing/paused/
+// gameover), pejalan kaki, tabrakan gedung, save/load localStorage,
+// dan loop update utama.
 
-import { CONFIG, PALETTE } from './config.js';
+import { CONFIG } from './config.js';
+import { makeRng } from './random.js';
+import { createAudio } from './audio.js';
+import { createInput } from './input.js';
+import { buildCity } from './city.js';
+import { spawnTraffic, spawnParkedCars, updateTraffic, updatePlayerCar } from './vehicles.js';
+import { createPlayer, updatePlayer, nearestCar, enterCar, exitCar, damagePlayer, respawnPlayer } from './player.js';
+import { createPolice } from './police.js';
+import { createCombat } from './combat.js';
+import { createMissions } from './missions.js';
+import { createHud } from './hud.js';
+import { createRenderer } from './render.js';
 
-function makePedMesh(rng) {
-  const g = new THREE.Group();
-  const shirt = rng.pick([0xc0a040, 0x4080c0, 0x8040a0, 0x40a080, 0xc06060, 0x808080]);
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.65, 0.95, 0.38),
-    new THREE.MeshLambertMaterial({ color: shirt }),
-  );
-  body.position.y = 1.0;
-  body.castShadow = true;
-  g.add(body);
-  const head = new THREE.Mesh(
-    new THREE.BoxGeometry(0.4, 0.4, 0.4),
-    new THREE.MeshLambertMaterial({ color: rng.pick([0xd8a880, 0xb08060, 0xe8c090]) }),
-  );
-  head.position.y = 1.72;
-  g.add(head);
-  const legMat = new THREE.MeshLambertMaterial({ color: 0x2a2a3a });
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.75, 0.28), legMat);
-  legL.position.set(-0.17, 0.38, 0);
-  g.add(legL);
-  const legR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.75, 0.28), legMat);
-  legR.position.set(0.17, 0.38, 0);
-  g.add(legR);
-  g.userData.legL = legL;
-  g.userData.legR = legR;
-  return g;
+export function createGame(seed) {
+  const G = {
+    config: CONFIG,
+    rng: makeRng(seed || 1),
+    scene: new THREE.Scene(),
+    time: 0,
+    dayTime: 0.6,
+    state: 'start', // start | playing | paused | gameover
+    muted: false,
+    shotCamera: false,
+    colliders: [],
+    traffic: [],
+    parkedCars: [],
+    peds: [],
+    best: 0,
+    save: null,
+  };
+  G.audio = createAudio();
+  G.input = createInput();
+  G.hud = createHud(G);
+  G.player = null; // diisi di bawah
+  G.police = createPolice(G);
+  G.combat = createCombat(G);
+  G.missions = createMissions(G);
+
+  // --- Save / load ---
+  G.loadSave = function () {
+    try {
+      const raw = localStorage.getItem(CONFIG.saveKey);
+      G.save = raw ? JSON.parse(raw) : null;
+      if (G.save && typeof G.save.best === 'number') G.best = G.save.best;
+    } catch (e) {
+      G.save = null;
+    }
+  };
+  G.saveGame = function () {
+    try {
+      const data = {
+        money: G.player.money,
+        missions: G.missions.index,
+        best: Math.max(G.best, G.player.money),
+      };
+      localStorage.setItem(CONFIG.saveKey, JSON.stringify(data));
+      G.best = data.best;
+    } catch (e) {}
+  };
+  G.loadSave();
+
+  // --- Dunia ---
+  buildCity(G);
+  G.traffic = spawnTraffic(G);
+  G.parkedCars = spawnParkedCars(G);
+  G.player = createPlayer(G);
+  if (G.save) {
+    if (typeof G.save.money === 'number') G.player.money = G.save.money;
+    if (typeof G.save.missions === 'number') G.missions.index = Math.min(3, G.save.missions);
+  }
+  G.peds = spawnPeds(G);
+
+  // --- Render ---
+  const R = createRenderer(G);
+  G.renderer = R.renderer;
+  G.camera = R.camera;
+  G.render = R;
+  G.hud.init();
+  G.input.attach(document.getElementById('game-canvas'));
+
+  // --- Helper yang dipakai modul lain ---
+  G.collide = function (x, z, r) {
+    for (const c of G.colliders) {
+      if (x > c.minX - r && x < c.maxX + r && z > c.minZ - r && z < c.maxZ + r) {
+        const pushL = x - (c.minX - r);
+        const pushR = c.maxX + r - x;
+        const pushU = z - (c.minZ - r);
+        const pushD = c.maxZ + r - z;
+        const m = Math.min(pushL, pushR, pushU, pushD);
+        if (m === pushL) x = c.minX - r;
+        else if (m === pushR) x = c.maxX + r;
+        else if (m === pushU) z = c.minZ - r;
+        else z = c.maxZ + r;
+        return { x, z };
+      }
+    }
+    return null;
+  };
+  G.nearestCar = (d) => nearestCar(G, d);
+  G.playerDamage = (amount, cause) => damagePlayer(G, amount, cause);
+  G.respawn = (reason) => respawnPlayer(G, reason);
+  G.gameOver = function (reason, cause) {
+    if (G.state === 'gameover') return;
+    G.state = 'gameover';
+    if (document.exitPointerLock) document.exitPointerLock();
+    G.saveGame();
+    const stats =
+      reason + ' Misi selesai: ' + G.missions.index + '/3. Uang: $' + G.player.money + '. Terbaik: $' + G.best + '.';
+    G.hud.showGameOver(stats);
+    void cause;
+  };
+  G.toggleMute = function () {
+    G.muted = !G.muted;
+    G.audio.setMuted(G.muted);
+    const b = document.getElementById('mute-btn');
+    if (b) b.textContent = G.muted ? '🔇 Suara: Mati' : '🔊 Suara: Hidup';
+  };
+
+  G.startGame = function () {
+    G.audio.ensure();
+    G.state = 'playing';
+    G.hud.showPlaying();
+    if (G.missions.index < 3 && G.missions.stage === 'idle') {
+      G.missions.start();
+    }
+  };
+
+  G.pauseGame = function () {
+    if (G.state !== 'playing') return;
+    G.state = 'paused';
+    if (document.exitPointerLock) document.exitPointerLock();
+    G.hud.showPause();
+  };
+
+  G.resumeGame = function () {
+    if (G.state !== 'paused') return;
+    G.state = 'playing';
+    G.hud.showPlaying();
+  };
+
+  G.restartRun = function () {
+    const p = G.player;
+    if (p.car) {
+      p.car.isPlayerCar = false;
+      p.car = null;
+    }
+    const [sx, sz] = CONFIG.spots.playerStart;
+    p.pos.set(sx, 0, sz);
+    p.mesh.position.copy(p.pos);
+    p.mesh.visible = true;
+    p.hp = CONFIG.player.hpMax;
+    p.dead = false;
+    p.money = G.save && typeof G.save.money === 'number' ? G.save.money : CONFIG.startMoney;
+    p.weapon = 'pistol';
+    p.ammo = { pistol: 12, smg: 30 };
+    p.reserve = { pistol: 72, smg: 150 };
+    p.yaw = Math.PI;
+    p.pitch = 0;
+    G.missions.index = G.save && typeof G.save.missions === 'number' ? Math.min(3, G.save.missions) : 0;
+    G.missions.stage = 'idle';
+    G.missions.stageDetail = '';
+    G.missions.hasPackage = false;
+    G.missions.timer = 0;
+    G.missions.hideBeacon();
+    G.missions.objective = 'Tekan T untuk telepon Mara dan mulai misi.';
+    G.combat.clearEnemies();
+    G.combat.reloading = false;
+    G.police.setWanted(0);
+    G.state = 'playing';
+    G.hud.showPlaying();
+    if (G.missions.index < 3) G.missions.start();
+  };
+
+  // --- Input sekali tekan ---
+  G.input.onPress = function (code) {
+    if (code === 'KeyM') {
+      G.toggleMute();
+      return;
+    }
+    if (G.state === 'start') {
+      if (code === 'Enter' || code === 'Space') G.startGame();
+      return;
+    }
+    if (G.state === 'playing') {
+      if (code === 'KeyE') {
+        if (G.player.car) exitCar(G);
+        else {
+          const car = nearestCar(G, 4.5);
+          if (car) enterCar(G, car);
+        }
+      } else if (code === 'KeyF') {
+        G.missions.tryPickupKey();
+      } else if (code === 'KeyR') {
+        G.combat.startReload();
+      } else if (code === 'KeyT') {
+        G.missions.callMara();
+      } else if (code === 'KeyP' || code === 'Escape') {
+        G.pauseGame();
+      } else if (code === 'Digit1') {
+        G.player.weapon = 'pistol';
+      } else if (code === 'Digit2') {
+        G.player.weapon = 'smg';
+      }
+      return;
+    }
+    if (G.state === 'paused') {
+      if (code === 'KeyP' || code === 'Escape') G.resumeGame();
+      else if (code === 'KeyR') G.restartRun();
+      return;
+    }
+    if (G.state === 'gameover') {
+      if (code === 'KeyR' || code === 'Enter') G.restartRun();
+    }
+  };
+
+  // Tombol-tombol layar.
+  const startBtn = document.getElementById('start-btn');
+  if (startBtn) startBtn.addEventListener('click', () => G.startGame());
+  const resumeBtn = document.getElementById('resume-btn');
+  if (resumeBtn) resumeBtn.addEventListener('click', () => G.resumeGame());
+  const restartBtn = document.getElementById('restart-btn');
+  if (restartBtn) restartBtn.addEventListener('click', () => G.restartRun());
+  const againBtn = document.getElementById('again-btn');
+  if (againBtn) againBtn.addEventListener('click', () => G.restartRun());
+
+  // --- Loop utama ---
+  G.update = function (dt) {
+    G.time += dt;
+    if (G.state === 'playing') {
+      updatePlayer(G, dt);
+      if (G.player.car) updatePlayerCar(G, dt);
+      updateTraffic(G, dt);
+      updatePeds(G, dt);
+      G.police.update(dt);
+      G.missions.update(dt);
+      G.combat.update(dt);
+      // Menembak: klik sekali (pistol) atau tahan (SMG).
+      if (!G.player.car) {
+        const w = G.combat.weapon();
+        if (w.auto) {
+          if (G.input.mouseDown) G.combat.shoot();
+        } else if (G.input.consumeClick()) {
+          G.combat.shoot();
+        }
+      }
+      G.audio.engineSet(G.player.car ? G.player.car.speed / CONFIG.car.maxSpeed : 0, !!G.player.car);
+      R.updateCamera(dt);
+      G.hud.update();
+    } else if (G.state === 'start') {
+      // Layar awal: kota hidup di belakang (lalu lintas jalan).
+      updateTraffic(G, dt);
+      updatePeds(G, dt);
+      R.updateCamera(dt);
+    }
+    R.update(dt);
+    R.render();
+  };
+
+  return G;
 }
 
-export class World {
-  constructor(game) {
-    this.game = game;
-    this.scene = game.scene;
-    this.rng = game.rng;
-    this.pedestrians = [];
-    this.timeOfDay = 0.32; // 0..1, mulai sore menjelang senja
-    this.sun = null;
-    this.ambient = null;
-    this.hemi = null;
+// --- Pejalan kaki ---
+function spawnPeds(G) {
+  const peds = [];
+  const colors = [0xc0a080, 0x8090a0, 0xa08090, 0x708070, 0x908060, 0x605060];
+  for (let i = 0; i < G.config.pedCount; i++) {
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.35, 0.42, 1.0, 8),
+      new THREE.MeshLambertMaterial({ color: G.rng.pick(colors) })
+    );
+    body.position.y = 0.9;
+    group.add(body);
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.26, 10, 8),
+      new THREE.MeshLambertMaterial({ color: 0xd8a077 })
+    );
+    head.position.y = 1.65;
+    group.add(head);
+    const x = G.rng.range(-380, 380);
+    const z = G.rng.range(-380, 280);
+    group.position.set(x, 0, z);
+    G.scene.add(group);
+    peds.push({
+      mesh: group,
+      pos: new THREE.Vector3(x, 0, z),
+      axis: G.rng.next() < 0.5 ? 'x' : 'z',
+      dir: G.rng.next() < 0.5 ? 1 : -1,
+      speed: G.rng.range(1.2, 2.2),
+      flee: 0,
+    });
   }
+  return peds;
+}
 
-  initLights() {
-    this.sun = new THREE.DirectionalLight(0xffb070, 1.6);
-    this.sun.position.set(200, 180, 100);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
-    this.sun.shadow.camera.left = -450;
-    this.sun.shadow.camera.right = 450;
-    this.sun.shadow.camera.top = 450;
-    this.sun.shadow.camera.bottom = -450;
-    this.sun.shadow.camera.far = 1200;
-    this.scene.add(this.sun);
-    this.hemi = new THREE.HemisphereLight(0xffd0a0, 0x404050, 0.7);
-    this.scene.add(this.hemi);
-    this.ambient = new THREE.AmbientLight(0x604050, 0.4);
-    this.scene.add(this.ambient);
-    this.scene.fog = new THREE.Fog(PALETTE.fog, 300, 1100);
-    return this;
-  }
-
-  spawnPedestrians(count) {
-    for (let i = 0; i < count; i++) {
-      const mesh = makePedMesh(this.rng);
-      const x = this.rng.range(-390, 390);
-      const z = this.rng.range(-390, 390);
-      mesh.position.set(x, 0, z);
-      this.scene.add(mesh);
-      const ped = {
-        mesh,
-        speed: this.rng.range(1.2, 2.4),
-        heading: this.rng.range(0, Math.PI * 2),
-        walkPhase: this.rng.range(0, 6),
-        flee: false,
-        fleeUntil: 0,
-        retargetAt: 0,
-      };
-      mesh.userData.pedRef = ped;
-      this.pedestrians.push(ped);
-    }
-    return this;
-  }
-
-  update(dt, now) {
-    // Siklus siang-malam: satu putaran penuh ~8 menit.
-    this.timeOfDay = (this.timeOfDay + dt / 480) % 1;
-    const day = Math.sin(this.timeOfDay * Math.PI * 2); // 1 = siang, -1 = malam
-    const sunH = Math.max(0.08, day * 0.7 + 0.3);
-    const angle = this.timeOfDay * Math.PI * 2;
-    this.sun.position.set(Math.cos(angle) * 300, 60 + sunH * 220, Math.sin(angle) * 300);
-    const warmth = Math.max(0, 1 - Math.abs(day - 0.3) * 2);
-    this.sun.color.setHSL(0.07 + warmth * 0.02, 0.7, 0.45 + sunH * 0.2);
-    this.sun.intensity = 0.5 + sunH * 1.3;
-    this.hemi.intensity = 0.35 + Math.max(0, day) * 0.45;
-    const night = Math.max(0, -day);
-    this.scene.background = new THREE.Color().setHSL(0.07, 0.55, 0.55 - night * 0.35);
-    this.scene.fog.color.setHSL(0.07, 0.5, 0.5 - night * 0.3);
-
-    // Pejalan kaki.
-    const playerPos = this.game.player.pos;
-    for (const p of this.pedestrians) {
-      const fleeing = p.flee && now < p.fleeUntil;
-      const speed = fleeing ? p.speed * 3.2 : p.speed;
-      if (fleeing) {
-        // Lari menjauhi pemain.
-        const dx = p.mesh.position.x - playerPos.x;
-        const dz = p.mesh.position.z - playerPos.z;
-        p.heading = Math.atan2(dx, dz);
-      } else if (now > p.retargetAt) {
-        // Pilih arah baru di trotoar terdekat (sepanjang jalan grid).
-        p.retargetAt = now + this.rng.range(4, 10);
-        p.heading = this.rng.pick([0, Math.PI / 2, Math.PI, -Math.PI / 2]);
+function updatePeds(G, dt) {
+  const p = G.player;
+  for (const ped of G.peds) {
+    if (ped.flee > 0) {
+      ped.flee -= dt;
+      // Lari menjauhi pemain.
+      const dx = ped.pos.x - p.pos.x;
+      const dz = ped.pos.z - p.pos.z;
+      const len = Math.hypot(dx, dz) || 1;
+      ped.pos.x += (dx / len) * 5 * dt;
+      ped.pos.z += (dz / len) * 5 * dt;
+    } else {
+      const step = ped.speed * ped.dir * dt;
+      if (ped.axis === 'x') {
+        ped.pos.x += step;
+        if (ped.pos.x > 390) ped.pos.x = -390;
+        if (ped.pos.x < -390) ped.pos.x = 390;
+      } else {
+        ped.pos.z += step;
+        if (ped.pos.z > 290) ped.pos.z = -390;
+        if (ped.pos.z < -390) ped.pos.z = 290;
       }
-      p.mesh.position.x += Math.sin(p.heading) * speed * dt;
-      p.mesh.position.z += Math.cos(p.heading) * speed * dt;
-      p.mesh.rotation.y = p.heading;
-      p.walkPhase += dt * speed * 3;
-      p.mesh.userData.legL.rotation.x = Math.sin(p.walkPhase) * 0.6;
-      p.mesh.userData.legR.rotation.x = -Math.sin(p.walkPhase) * 0.6;
-      // Tetap di dalam kota, putar balik di tepi.
-      if (Math.abs(p.mesh.position.x) > 395 || Math.abs(p.mesh.position.z) > 395) {
-        p.heading += Math.PI;
-        p.mesh.position.x = Math.max(-390, Math.min(390, p.mesh.position.x));
-        p.mesh.position.z = Math.max(-390, Math.min(390, p.mesh.position.z));
-      }
-      if (!fleeing && p.flee) p.flee = false;
+      // Pejalan kaki menghindar bila pemain/mobil sangat dekat.
+      const d = ped.pos.distanceTo(p.pos);
+      if (d < 4 && G.state === 'playing') ped.flee = 3;
     }
+    ped.mesh.position.copy(ped.pos);
+    ped.mesh.rotation.y = ped.axis === 'x' ? (ped.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : ped.dir > 0 ? 0 : Math.PI;
   }
 }
