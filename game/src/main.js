@@ -1,221 +1,290 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s
-// steps, and the renderer paints what is there. Screens: title, play, paused, game over.
-// Progress (cash, missions done, best wanted) is saved to localStorage between visits.
+// SOLMAR — boot and the one loop. Input is read every frame, the world
+// advances in fixed 1/60 s steps, and the renderer paints what is there. The
+// game moves between four screens: title, play, paused and game over. Progress
+// (cash, jobs finished, best cash) is kept in localStorage between visits.
 //
-// ?seed=N fixes the city. ?shot=start|drive|chase|mission (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { SAVE_KEY, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createAudio } from './audio.js';
-import { ACTION_CONFIRM, ACTION_ENTER, ACTION_MUTE, ACTION_PAUSE, ACTION_PUNCH, ACTION_RESTART, createInput } from './input.js';
-import { EVENT_CASH, EVENT_MISSION, EVENT_OVER, createWorld } from './world.js';
-import { createHud, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './hud.js';
-import { createRenderer } from './render.js';
+// ?seed=N fixes the city. ?shot=start|drive|chase|mission (with &seed=N)
+// stages that scene instead of running the loop, paints it a few times and
+// sets window.__shotReady for a screenshot.
+import { SOLMAR, STEP } from './config.js';
+import { makeRng } from './random.js';
+import { createInput } from './input.js';
+import { createRender } from './render.js';
+import { createWorld } from './world.js';
+import { createHud } from './hud.js';
+import { currentMission, startCall, MISSION_IDLE } from './missions.js';
 import { stageShot } from './shots.js';
 
-const MAX_FRAME = 0.25;
+window.__errors = [];
+window.addEventListener('error', (e) => window.__errors.push(String(e.message || e.error)));
 
+const MAX_FRAME = 0.25;
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
 const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
+const seed = Number.isInteger(seedParam) ? seedParam : (Math.floor(Math.random() * 4294967296) >>> 0);
 
 const canvas = document.getElementById('game');
 const status = document.getElementById('status');
-const renderer = createRenderer(canvas);
+const rng = makeRng(seed);
+const render = createRender(canvas);
+const world = createWorld(render.scene, rng);
 const hud = createHud();
 const input = createInput(canvas);
-const audio = createAudio();
-const world = createWorld(createRandom(seed), renderer, renderer.scene);
-const state = world.state;
 
 function readSave() {
   try {
-    return JSON.parse(window.localStorage.getItem(SAVE_KEY) ?? '{}');
+    const raw = window.localStorage.getItem(SOLMAR.saveKey);
+    if (!raw) return { money: 0, missionsDone: 0, best: 0 };
+    const s = JSON.parse(raw);
+    return { money: s.money | 0, missionsDone: s.missionsDone | 0, best: s.best | 0 };
   } catch {
-    return {};
+    return { money: 0, missionsDone: 0, best: 0 };
   }
 }
 
 function writeSave() {
   try {
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify({
-      cash: state.cash,
-      missionsDone: state.missionsDone,
-      bestWanted: state.bestWanted,
+    window.localStorage.setItem(SOLMAR.saveKey, JSON.stringify({
+      money: Math.floor(world.state.money),
+      missionsDone: world.state.missionsDone,
+      best: Math.floor(world.state.best),
     }));
   } catch {
     // Storage can be off: progress then lasts this visit only.
   }
 }
 
-const saved = readSave();
-state.cash = saved.cash ?? 0;
-state.missionsDone = saved.missionsDone ?? 0;
+const save = readSave();
+world.state.money = save.money;
+world.state.best = save.best;
+world.state.missionsDone = save.missionsDone;
+world.missions.index = Math.min(save.missionsDone, 3);
+
+window.__solmar = {
+  version: 'solmar-round2',
+  seed,
+  world,
+  get screen() { return screen; },
+  get money() { return world.state.money; },
+  get wanted() { return world.police.wanted; },
+  get missionIndex() { return world.missions.index; },
+  get missionPhase() { return world.missions.phase; },
+  get playerHealth() { return world.player.health; },
+  get camYaw() { return camYaw; },
+  camera: render.camera,
+  missions: world.missions,
+  startCall() { startCall(world.missions, world.audio); },
+  save: writeSave,
+};
+
+let screen = 'title';
+let camYaw = Math.PI;
+let camPitch = 0.12;
+let accumulator = 0;
+let last = performance.now();
+let titleT = 0;
+let callTimer = -1;
+let saveTimer = 0;
+let lastMouseDX = 0;
+
+function announce(message) {
+  status.textContent = message;
+}
+
+function startGame() {
+  screen = 'play';
+  hud.showScreen('play');
+  input.lockPointer();
+  world.audio.unlock();
+  announce('Bermain sebagai Rook di Solmar. Tekan F untuk menerima pekerjaan dari Mara.');
+  if (world.missions.phase === MISSION_IDLE && currentMission(world.missions)) callTimer = 1.5;
+}
+
+function endGameOver() {
+  screen = 'over';
+  input.unlockPointer();
+  writeSave();
+}
+
+function refreshHud() {
+  const p = world.player;
+  hud.setMoney(world.state.money);
+  hud.setHealth(p.health);
+  hud.setStars(world.police.wanted);
+  hud.setSpeed(world.speedKmh || 0);
+  const slot = p.ammo[p.weapon];
+  hud.setAmmo(p.weapon, slot.mag, slot.reserve);
+  hud.setCrosshair(!p.inCar && screen === 'play');
+  const m = currentMission(world.missions);
+  if (world.missions.phase === 'active') {
+    hud.setObjective(world.missions.objective);
+    hud.setTimer(world.missions.timeLeft || 0);
+  } else if (m) {
+    hud.setObjective(`Tekan F — pekerjaan berikutnya: ${m.name} ($${m.reward}).`);
+    hud.setTimer(0);
+  } else {
+    hud.setObjective('Semua misi selesai. Solmar milikmu — free roam.');
+    hud.setTimer(0);
+  }
+  hud.drawMinimap(world);
+}
+
+function drainEvents() {
+  if (world.phoneEvent) {
+    hud.toast(world.phoneEvent.title, world.phoneEvent.text);
+    world.phoneEvent = null;
+  }
+  if (world.bannerEvent) {
+    hud.banner(world.bannerEvent.title, world.bannerEvent.sub);
+    world.bannerEvent = null;
+  }
+  if (world.wastedEvent) {
+    const w = world.wastedEvent;
+    world.wastedEvent = null;
+    hud.showOver(w.title, w.stats);
+    endGameOver();
+  }
+}
+
+function step(dt) {
+  if (callTimer > 0) {
+    callTimer -= dt;
+    if (callTimer <= 0) {
+      callTimer = -1;
+      startCall(world.missions, world.audio);
+    }
+  }
+  const mouse = input.takeMouse();
+  if (mouse.dx !== 0 || mouse.dy !== 0) {
+    camYaw -= mouse.dx * 0.0032;
+    camPitch = Math.max(-0.3, Math.min(0.55, camPitch + mouse.dy * 0.0022));
+    lastMouseDX = performance.now();
+  }
+  // While driving, the camera drifts back behind the car when the mouse rests.
+  const car = world.player.inCar;
+  if (car && performance.now() - lastMouseDX > 900) {
+    const want = car.heading + Math.PI;
+    let diff = want - camYaw;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    camYaw += diff * Math.min(1, dt * 1.4);
+  }
+  const view = { camYaw, camPitch, camera: render.camera };
+  world.update(dt, input, view);
+  render.updateSun(dt);
+  const target = car
+    ? { x: car.x, y: 1.2, z: car.z }
+    : { x: world.player.x, y: world.player.y + 1.2, z: world.player.z };
+  render.updateCamera(target, camYaw, camPitch, !!car, dt);
+  drainEvents();
+  refreshHud();
+  saveTimer += dt;
+  if (saveTimer > 2) {
+    saveTimer = 0;
+    writeSave();
+  }
+}
+
+function handleKeys() {
+  if (input.justPressed('KeyM')) {
+    world.audio.setMuted(!world.audio.muted);
+    announce(world.audio.muted ? 'Suara dimatikan.' : 'Suara dinyalakan.');
+  }
+  if (screen === 'title' && (input.justPressed('Enter') || input.justPressed('Space') || input.takeClick())) {
+    startGame();
+  } else if (screen === 'play' && (input.justPressed('KeyP') || input.justPressed('Escape'))) {
+    screen = 'pause';
+    hud.showScreen('pause');
+    input.unlockPointer();
+    world.audio.engineOff();
+    announce('Jeda.');
+  } else if (screen === 'pause' && (input.justPressed('KeyP') || input.justPressed('Escape') || input.justPressed('Enter'))) {
+    screen = 'play';
+    hud.showScreen('play');
+    input.lockPointer();
+    announce('Lanjut bermain.');
+  } else if (screen === 'over' && (input.justPressed('KeyR') || input.justPressed('Enter'))) {
+    window.location.reload();
+  }
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min((now - last) / 1000, MAX_FRAME);
+  last = now;
+  handleKeys();
+  if (screen === 'title') {
+    titleT += dt;
+    render.titleCamera(titleT);
+    render.updateSun(dt);
+    render.render();
+  } else if (screen === 'play') {
+    accumulator += dt;
+    let guard = 0;
+    while (accumulator >= STEP && guard < 8) {
+      step(STEP);
+      accumulator -= STEP;
+      guard += 1;
+    }
+    if (guard >= 8) accumulator = 0;
+    render.render();
+  } else {
+    render.render();
+  }
+  input.endFrame();
+}
 
 function runShot(name) {
-  const staged = stageShot(name, world, null);
-  hud.showScreen(staged.screen, null);
-  window.__solmar = { state, world, screen: staged.screen, staged };
-  // The HUD (minimap, cash, wanted) is part of the play screenshots.
-  if (staged.screen === SCREEN_PLAY) hud.draw(state, 0);
+  const view = { camYaw: 0, camPitch: 0.12, camera: render.camera };
+  const staged = stageShot(name, world, view);
+  hud.setMoney(world.state.money);
+  hud.setHealth(world.player.health);
+  hud.setStars(world.police.wanted);
+  hud.setSpeed(world.speedKmh || 0);
+  const slot = world.player.ammo[world.player.weapon];
+  hud.setAmmo(world.player.weapon, slot.mag, slot.reserve);
+  hud.setCrosshair(!world.player.inCar);
+  if (staged.screen === 'title') {
+    hud.setTitleStats(world.state.money, world.state.missionsDone, world.state.best);
+    hud.showScreen('title');
+  } else {
+    hud.showScreen('play');
+    const m = currentMission(world.missions);
+    if (world.missions.phase === 'active') {
+      hud.setObjective(world.missions.objective);
+      hud.setTimer(world.missions.timeLeft || 0);
+    } else if (m) hud.setObjective(`Pekerjaan: ${m.name} ($${m.reward}).`);
+    const car = world.player.inCar;
+    const target = car
+      ? { x: car.x, y: 1.2, z: car.z }
+      : { x: world.player.x, y: 1.2, z: world.player.z };
+    render.updateCamera(target, staged.camYaw, 0.12, !!car, 1);
+  }
+  hud.drawMinimap(world);
   let painted = 0;
   function paint() {
-    const target = world.cameraTarget();
-    const yaw = staged.yaw !== undefined ? staged.yaw : target.heading + (staged.yawOffset ?? 0);
-    renderer.drawStill(target, yaw, staged.pitch, staged.dist, staged.height);
+    if (staged.screen === 'title') {
+      titleT += 0.4;
+      render.titleCamera(titleT);
+    }
+    render.render();
     painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
+    if (painted < 3) requestAnimationFrame(paint);
     else window.__shotReady = true;
   }
   requestAnimationFrame(paint);
 }
 
-function runGame() {
-  let screen = SCREEN_TITLE;
-  let accumulator = 0;
-  let last = performance.now();
-  let lastMissionIndex = -1;
-  let lastObjective = '';
-
-  function announce(message) {
-    status.textContent = message;
-  }
-
-  function startGame() {
-    audio.unlock();
-    world.reset();
-    state.cash = readSave().cash ?? state.cash;
-    lastMissionIndex = -1;
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    hud.showScreen(screen, null);
-    announce('Playing. Mara has work for you — check the objective.');
-  }
-
-  function endGame() {
-    screen = SCREEN_OVER;
-    writeSave();
-    hud.showScreen(screen, { cash: state.cash, missionsDone: state.missionsDone, bestWanted: state.bestWanted });
-    announce(`Busted. Cash $${state.cash}. Missions ${state.missionsDone} of 3.`);
-  }
-
-  /** The wish direction on foot, from the keys and the camera yaw. */
-  function footWish(drive) {
-    const yaw = renderer.yaw();
-    const mx = Math.sin(yaw) * drive.throttle + Math.cos(yaw) * drive.steer;
-    const mz = Math.cos(yaw) * drive.throttle - Math.sin(yaw) * drive.steer;
-    return { mx, mz };
-  }
-
-  // One-shot presses are taken exactly once per frame, here, and handed to both the screen
-  // handler and the first world step: taking them twice would eat ENTER and PUNCH before the
-  // world ever saw them.
-  function handleActions(actions) {
-    if (actions & ACTION_MUTE) {
-      audio.setMuted(!audio.isMuted());
-      return;
-    }
-    if (actions & ACTION_RESTART && screen !== SCREEN_TITLE) {
-      startGame();
-      return;
-    }
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) {
-      startGame();
-    } else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      hud.showScreen(screen, null);
-      announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      hud.showScreen(screen, null);
-      announce('Playing.');
-    }
-  }
-
-  function step(actions) {
-    const drive = input.drive();
-    // Movement input is relative to the camera when on foot, direct when driving.
-    const wish = state.playerCar ? { mx: 0, mz: 0 } : footWish(drive);
-    const events = world.step(STEP, { ...drive, ...wish }, actions, screen === SCREEN_PLAY && input.isMouseDown(), audio);
-    // Toast the mission brief when a new mission starts.
-    const cur = state.missions.current();
-    if (cur && cur.missionIndex !== lastMissionIndex) {
-      lastMissionIndex = cur.missionIndex;
-      hud.toast(cur.mission.brief);
-    }
-    if (events & EVENT_MISSION) {
-      const done = state.missions.list[state.missionsDone - 1];
-      if (done) hud.toast(`Job done: ${done.name} — $${done.reward}`);
-    }
-    if (events & EVENT_CASH) writeSave();
-    if (events & EVENT_OVER) endGame();
-    if (state.objective !== lastObjective) {
-      lastObjective = state.objective;
-    }
-  }
-
-  function frame(now) {
-    requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    const actions = input.takeActions();
-    handleActions(actions);
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      let frameActions = screen === SCREEN_PLAY ? actions : 0;
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        if (screen === SCREEN_TITLE) {
-          // The city lives behind the title: traffic and pedestrians move, nothing scores.
-          world.step(STEP, { throttle: 0, steer: 0, sprint: false, mx: 0, mz: 0 }, 0, false, null);
-        } else {
-          step(frameActions);
-          frameActions = 0;
-        }
-        accumulator -= STEP;
-      }
-    } else {
-      accumulator = 0;
-    }
-    if (screen === SCREEN_TITLE) {
-      // A fixed high view over the plaza: the whole city reads behind the title.
-      renderer.drawStill(
-        { x: 0, z: 0, heading: 0, speed: 0, car: null },
-        0.8, 0.5, 44, 26,
-      );
-    } else {
-      const orbit = input.takeOrbit();
-      renderer.draw(world.cameraTarget(), STEP, orbit, now / 1000);
-    }
-    if (screen === SCREEN_PLAY) hud.draw(state, STEP);
-  }
-
-  // Leaving the tab pauses a running game rather than letting the city run unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      hud.showScreen(screen, null);
-      announce('Paused.');
-    }
+if (shot) {
+  runShot(shot);
+} else {
+  hud.setTitleStats(save.money, save.missionsDone, save.best);
+  hud.showScreen('title');
+  announce('SOLMAR. Klik untuk mulai.');
+  // The title overlay covers the canvas, so its own click starts the game.
+  document.getElementById('screen-title').addEventListener('click', () => {
+    if (screen === 'title') startGame();
   });
-
-  // The playtest and screenshot bots read the live state from here.
-  window.__solmar = {
-    state,
-    world,
-    get screen() {
-      return screen;
-    },
-    /** The camera's yaw, so a bot can turn the on-foot wish direction into keys. */
-    get camYaw() {
-      return renderer.yaw();
-    },
-    start: startGame,
-  };
-
-  hud.showScreen(SCREEN_TITLE, null);
-  announce('SOLMAR. Press Space or click to start.');
   requestAnimationFrame(frame);
 }
-
-if (shot) runShot(shot);
-else runGame();

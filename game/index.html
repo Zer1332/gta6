@@ -1,76 +1,126 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SOLMAR — Streets of Solmar</title>
+<link rel="icon" href="data:,">
+<title>SOLMAR — Kota Pesisir, Pekerjaan Kotor</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1420; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1410; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #f2ede4; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  #hud { position: fixed; inset: 0; pointer-events: none; color: #f5f1e6; display: none; }
-  .panel { position: absolute; background: rgba(12, 18, 28, 0.72); border-radius: 10px; padding: 8px 12px; }
-  #hud-cash { top: 14px; left: 14px; font-size: 26px; font-weight: 800; color: #f2c94c; }
-  #hud-right { top: 14px; right: 14px; text-align: right; }
-  #hud-stars { font-size: 24px; letter-spacing: 2px; }
-  #hud-clock { font-size: 18px; color: #c9c2ae; }
-  #hud-objective { top: 14px; left: 50%; transform: translateX(-50%); max-width: 560px; text-align: center; font-size: 17px; font-weight: 600; }
-  #hud-objective small { display: block; font-size: 12px; color: #c9c2ae; font-weight: 400; margin-top: 2px; }
-  #hud-prompt { bottom: 150px; left: 50%; transform: translateX(-50%); font-size: 18px; background: rgba(12, 18, 28, 0.8); padding: 8px 16px; border-radius: 8px; display: none; }
-  #hud-health { bottom: 18px; left: 248px; width: 200px; }
-  #hud-health .label { font-size: 12px; color: #c9c2ae; margin-bottom: 4px; }
-  #hud-health-bar { height: 12px; background: rgba(255,255,255,0.18); border-radius: 6px; overflow: hidden; }
-  #hud-health-fill { height: 100%; width: 100%; background: #58c96b; }
-  #hud-speed { bottom: 18px; right: 18px; font-size: 26px; font-weight: 800; }
-  #minimap { position: absolute; bottom: 14px; left: 14px; border: 2px solid rgba(245,241,230,0.65); border-radius: 8px; background: #20262e; }
-  #hud-toast { top: 84px; left: 50%; transform: translateX(-50%); font-size: 20px; font-weight: 700; color: #f2c94c; text-shadow: 0 2px 6px rgba(0,0,0,0.7); opacity: 0; transition: opacity 0.4s; }
-  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #f5f1e6; background: radial-gradient(ellipse at center, rgba(10,16,26,0.25) 0%, rgba(10,16,26,0.72) 100%); }
-  .screen h1 { font-size: 84px; margin: 0; letter-spacing: 10px; color: #ffd75e; text-shadow: 0 4px 0 #b3541e, 0 8px 24px rgba(0,0,0,0.6); }
-  .screen h2 { font-size: 22px; margin: 6px 0 18px; font-weight: 400; color: #ffe9a8; }
-  .screen p { font-size: 16px; line-height: 1.7; color: #e8e2d2; margin: 4px 0; max-width: 620px; }
-  .screen .keys { font-size: 14px; color: #c9c2ae; margin-top: 14px; }
-  .screen .prompt { margin-top: 22px; font-size: 20px; font-weight: 700; color: #f2c94c; animation: pulse 1.4s ease-in-out infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
-  #screen-over h1 { font-size: 56px; color: #ff6b5e; text-shadow: 0 4px 0 #7a1f18, 0 8px 24px rgba(0,0,0,0.6); }
+  .hidden { display: none !important; }
+  /* ---- HUD ---- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .panel { background: rgba(16, 20, 26, 0.72); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px; padding: 8px 12px; }
+  #topleft { position: absolute; top: 14px; left: 14px; display: flex; flex-direction: column; gap: 8px; }
+  #health-wrap { width: 210px; }
+  #health-bar { height: 12px; background: rgba(255,255,255,0.16); border-radius: 6px; overflow: hidden; margin-top: 4px; }
+  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #37c978, #7be495); border-radius: 6px; }
+  #health-line { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  #money { font-size: 26px; font-weight: 800; color: #7be495; }
+  #wanted { font-size: 24px; letter-spacing: 4px; color: #ffd24c; }
+  #wanted.hot { color: #ff5340; }
+  #objective { max-width: 330px; font-size: 14px; line-height: 1.45; }
+  #objective b { color: #ffd24c; }
+  #timer { font-size: 20px; font-weight: 800; color: #ffd24c; }
+  #timer.hot { color: #ff5340; }
+  #minimap { position: absolute; top: 14px; right: 14px; width: 190px; height: 190px; border: 2px solid rgba(255,255,255,0.25); border-radius: 8px; background: rgba(16,20,26,0.8); }
+  #maplabel { position: absolute; top: 208px; right: 16px; font-size: 11px; letter-spacing: 0.18em; color: rgba(255,255,255,0.65); }
+  #bottomright { position: absolute; right: 14px; bottom: 14px; text-align: right; }
+  #speed { font-size: 30px; font-weight: 800; }
+  #ammo { font-size: 16px; font-weight: 700; color: #ffd24c; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255,255,255,0.9); }
+  #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  #crosshair::after { top: 10px; left: 0; width: 22px; height: 2px; }
+  #hint { position: absolute; left: 14px; bottom: 14px; font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.6; }
+  /* ---- Banner & phone ---- */
+  #banner { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); text-align: center; padding: 16px 34px; }
+  #banner.pop { animation: pop 0.35s ease-out; }
+  @keyframes pop { from { transform: translateX(-50%) scale(0.85); opacity: 0; } to { transform: translateX(-50%) scale(1); opacity: 1; } }
+  .banner-title { font-size: 30px; font-weight: 800; color: #ffd24c; }
+  .banner-sub { font-size: 15px; margin-top: 4px; }
+  #phone { position: absolute; left: 14px; top: 42%; width: 300px; padding: 12px 16px; border-left: 4px solid #4fc3f7; }
+  .phone-name { font-weight: 800; color: #4fc3f7; }
+  .phone-text { font-size: 14px; line-height: 1.45; margin-top: 4px; }
+  /* ---- Full screens ---- */
+  .screen { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: radial-gradient(ellipse at 50% 30%, rgba(64, 32, 12, 0.55), rgba(10, 8, 14, 0.88)); }
+  .game-title { font-size: 92px; font-weight: 900; letter-spacing: 0.14em; color: #ffd24c; text-shadow: 0 4px 0 #b0562e, 0 10px 34px rgba(0,0,0,0.7); margin: 0; }
+  .game-sub { font-size: 19px; color: #f2ede4; margin: 6px 0 22px; letter-spacing: 0.06em; }
+  .start-prompt { font-size: 22px; font-weight: 700; color: #fff; animation: blink 1.4s infinite; }
+  @keyframes blink { 50% { opacity: 0.35; } }
+  .cols { display: flex; gap: 28px; margin-top: 26px; text-align: left; }
+  .cols .panel { width: 250px; font-size: 14px; line-height: 1.75; }
+  .cols h3 { margin: 0 0 6px; color: #ffd24c; font-size: 15px; letter-spacing: 0.08em; }
+  #title-stats { margin-top: 22px; font-size: 14px; color: rgba(255,255,255,0.75); }
+  .screen h2 { font-size: 44px; margin: 0 0 10px; color: #ffd24c; }
+  .screen p { font-size: 17px; line-height: 1.6; max-width: 520px; }
+  kbd { background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.3); border-radius: 4px; padding: 1px 6px; font-family: inherit; }
 </style>
 <script type="importmap">
 { "imports": { "three": "./vendor/three.min.js" } }
 </script>
 </head>
 <body>
-<canvas id="game" aria-label="SOLMAR: an open-world crime game. Drive, steal cars, dodge the police and run Mara's jobs."></canvas>
+<canvas id="game" aria-label="SOLMAR: game open-world crime 3D. Rook, sopir sewaan di kota pesisir Solmar."></canvas>
 <p id="status" role="status" aria-live="polite"></p>
 
-<div id="hud">
-  <div id="hud-cash" class="panel">$0</div>
-  <div id="hud-right" class="panel"><div id="hud-stars">☆☆☆☆☆</div><div id="hud-clock">15:30</div></div>
-  <div id="hud-objective" class="panel"></div>
-  <div id="hud-toast"></div>
-  <div id="hud-prompt"></div>
-  <canvas id="minimap" width="220" height="220"></canvas>
-  <div id="hud-health" class="panel"><div class="label">HEALTH</div><div id="hud-health-bar"><div id="hud-health-fill"></div></div></div>
-  <div id="hud-speed" class="panel"></div>
+<div id="hud" class="hidden">
+  <div id="topleft">
+    <div id="health-wrap" class="panel">
+      <div id="health-line"><span>ROOK</span><span><span id="health-num">100</span> HP</span></div>
+      <div id="health-bar"><div id="health-fill"></div></div>
+    </div>
+    <div id="money" class="panel">$0</div>
+    <div id="wanted" class="panel">☆☆☆☆☆</div>
+    <div id="objective" class="panel"><b>MARA SOLANO</b><br>Jelajahi Solmar. Tekan F untuk mulai misi pertama.</div>
+    <div id="timer" class="panel hidden"></div>
+  </div>
+  <canvas id="minimap" width="190" height="190"></canvas>
+  <div id="maplabel">SOLMAR · MINIMAP</div>
+  <div id="bottomright">
+    <div id="ammo" class="panel">PISTOL 12 / 60</div>
+    <div id="speed" class="panel">0 km/h</div>
+  </div>
+  <div id="crosshair" class="hidden"></div>
+  <div id="hint">WASD jalan · Mouse lihat · <kbd>E</kbd> masuk/keluar mobil · <kbd>F</kbd> misi · Klik tembak · <kbd>R</kbd> isi ulang · <kbd>1</kbd>/<kbd>2</kbd> senjata · <kbd>P</kbd> jeda · <kbd>M</kbd> suara</div>
+  <div id="banner" class="panel hidden"><div class="banner-title"></div><div class="banner-sub"></div></div>
+  <div id="phone" class="panel hidden"><div class="phone-name"></div><div class="phone-text"></div></div>
 </div>
 
-<div id="screen-title" class="screen" style="display:flex">
-  <h1>SOLMAR</h1>
-  <h2>Streets of Solmar — an open-world crime story</h2>
-  <p>You are <b>Rook</b>, a getaway driver in debt to fixer <b>Mara Solano</b>. Steal cars, outrun the Solmar PD, and run her three jobs — from a first stolen car to the dockside turf war.</p>
-  <p class="keys">WASD / arrows — move &amp; drive &nbsp;·&nbsp; E — steal / exit car &nbsp;·&nbsp; Mouse — shoot &nbsp;·&nbsp; F — punch &nbsp;·&nbsp; Shift — sprint &nbsp;·&nbsp; P — pause &nbsp;·&nbsp; M — mute &nbsp;·&nbsp; R — restart &nbsp;·&nbsp; Drag mouse — look around</p>
-  <div class="prompt">Press Space or click to start</div>
+<div id="screen-title" class="screen">
+  <h1 class="game-title">SOLMAR</h1>
+  <div class="game-sub">Kota pesisir. Pekerjaan kotor. Satu sopir sewaan: <b>Rook</b>.</div>
+  <div class="start-prompt">— KLIK UNTUK MULAI —</div>
+  <div class="cols">
+    <div class="panel"><h3>KONTROL</h3>
+      <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> jalan / mengemudi<br>
+      Mouse — melihat &nbsp;·&nbsp; <kbd>Shift</kbd> lari<br>
+      <kbd>E</kbd> masuk / keluar mobil &nbsp;·&nbsp; <kbd>F</kbd> misi<br>
+      Klik — tembak &nbsp;·&nbsp; <kbd>R</kbd> isi ulang<br>
+      <kbd>1</kbd>/<kbd>2</kbd> pistol / SMG &nbsp;·&nbsp; <kbd>Space</kbd> lompat / rem tangan<br>
+      <kbd>P</kbd> jeda &nbsp;·&nbsp; <kbd>M</kbd> suara &nbsp;·&nbsp; <kbd>R</kbd> restart
+    </div>
+    <div class="panel"><h3>MISI — MARA SOLANO</h3>
+      1. <b>First Gear</b> — curi sedan, antar ke garasi. <b>$300</b><br>
+      2. <b>Sunset Run</b> — antar paket ke dermaga, 90 detik. <b>$500</b><br>
+      3. <b>Dockside</b> — kalahkan 3 geng Vulture. <b>$800</b><br>
+      Wanted 0–5 bintang. Tertangkap atau tumbang: bangun di rumah sakit, uang berkurang 10%.
+    </div>
+  </div>
+  <div id="title-stats"></div>
 </div>
 
-<div id="screen-paused" class="screen">
-  <h1 style="font-size:56px">PAUSED</h1>
-  <p>Solmar waits for you.</p>
-  <div class="prompt">Press P to resume</div>
+<div id="screen-pause" class="screen hidden">
+  <h2>JEDA</h2>
+  <p>Solmar menunggumu. Tekan <kbd>P</kbd> atau <kbd>Esc</kbd> untuk lanjut.</p>
 </div>
 
-<div id="screen-over" class="screen">
-  <h1>BUSTED</h1>
+<div id="screen-over" class="screen hidden">
+  <h2 id="over-title">Rook tumbang!</h2>
   <p id="over-stats"></p>
-  <p>Mara will have words. The city will still be there.</p>
-  <div class="prompt">Press Space or R to play again</div>
+  <p>Tekan <kbd>R</kbd> atau <kbd>Enter</kbd> untuk kembali ke jalanan Solmar.</p>
 </div>
 
 <script type="module" src="./src/main.js"></script>

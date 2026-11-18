@@ -1,116 +1,100 @@
-// Keyboard and mouse input. Held keys steer and drive; one-shot presses (enter a car, punch,
-// shoot, pause, mute, restart) are queued as bit flags and taken once by the loop, so a press
-// between two frames is never lost and never counted twice. Dragging the mouse orbits the camera.
-
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
-export const ACTION_ENTER = 4;
-export const ACTION_PUNCH = 8;
-export const ACTION_MUTE = 16;
-export const ACTION_RESTART = 32;
-
-const FORWARD = new Set(['ArrowUp', 'KeyW']);
-const BACK = new Set(['ArrowDown', 'KeyS']);
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const SPRINT = new Set(['ShiftLeft', 'ShiftRight']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-const ENTER = new Set(['KeyE']);
-const PUNCH = new Set(['KeyF']);
-const MUTE = new Set(['KeyM']);
-const RESTART = new Set(['KeyR']);
-
-export function createInput(target) {
-  const held = new Set();
-  let actions = 0;
-  let orbitX = 0;
-  let orbitY = 0;
-  let dragging = false;
+// SOLMAR — keyboard and mouse. Keys are held in a set; edge presses (E, F, R,
+// P, M, digits, Space-as-jump) are reported once through justPressed, which the
+// main loop drains every frame. Mouse movement feeds the third-person camera
+// while pointer lock is held; a plain click still fires the weapon when the
+// pointer is not locked, so the game stays playable in a plain browser tab.
+export function createInput(canvas) {
+  const keys = new Set();
+  const pressed = new Set();
+  let mouseDX = 0;
+  let mouseDY = 0;
   let mouseDown = false;
-  let lastX = 0;
-  let lastY = 0;
+  let mouseClicked = false;
+  let locked = false;
 
-  window.addEventListener('keydown', (event) => {
-    if (FORWARD.has(event.code) || BACK.has(event.code) || LEFT.has(event.code) || RIGHT.has(event.code) || SPRINT.has(event.code)) {
-      held.add(event.code);
-    } else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else if (ENTER.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_ENTER;
-    } else if (PUNCH.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PUNCH;
-    } else if (MUTE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_MUTE;
-    } else if (RESTART.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_RESTART;
-    } else {
-      return;
+  function onKeyDown(e) {
+    if (e.repeat) return;
+    keys.add(e.code);
+    pressed.add(e.code);
+    if (e.code === 'Space') e.preventDefault();
+  }
+  function onKeyUp(e) {
+    keys.delete(e.code);
+  }
+  function onMouseMove(e) {
+    if (document.pointerLockElement === canvas) {
+      mouseDX += e.movementX || 0;
+      mouseDY += e.movementY || 0;
     }
-    event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => {
-    held.delete(event.code);
-  });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    held.clear();
-    dragging = false;
+  }
+  function onMouseDown(e) {
+    if (e.button === 0) {
+      mouseDown = true;
+      mouseClicked = true;
+    }
+  }
+  function onMouseUp(e) {
+    if (e.button === 0) mouseDown = false;
+  }
+  function onLockChange() {
+    locked = document.pointerLockElement === canvas;
+  }
+  function onBlur() {
+    keys.clear();
     mouseDown = false;
-  });
-
-  // pointerdown on the window, not the canvas: the title and pause screens sit on top of the
-  // canvas and would otherwise swallow the click that starts the game.
-  window.addEventListener('pointerdown', (event) => {
-    mouseDown = true;
-    dragging = true;
-    lastX = event.clientX;
-    lastY = event.clientY;
-    actions |= ACTION_CONFIRM;
-  });
-  window.addEventListener('pointerup', () => {
-    mouseDown = false;
-    dragging = false;
-  });
-  window.addEventListener('pointermove', (event) => {
-    if (!dragging) return;
-    orbitX += event.clientX - lastX;
-    orbitY += event.clientY - lastY;
-    lastX = event.clientX;
-    lastY = event.clientY;
-  });
-
-  function has(codes) {
-    for (const code of codes) if (held.has(code)) return true;
-    return false;
   }
 
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onBlur);
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('pointerlockchange', onLockChange);
+  canvas.addEventListener('mousedown', onMouseDown);
+  window.addEventListener('mouseup', onMouseUp);
+
   return {
-    /** -1..1 forward/back, -1..1 left/right, and whether sprint is held. */
+    get locked() { return locked; },
+    down(code) { return keys.has(code); },
+    justPressed(code) { return pressed.has(code); },
+    takeMouse() {
+      const dx = mouseDX;
+      const dy = mouseDY;
+      mouseDX = 0;
+      mouseDY = 0;
+      return { dx, dy };
+    },
+    takeClick() {
+      const c = mouseClicked;
+      mouseClicked = false;
+      return c;
+    },
+    get mouseHeld() { return mouseDown; },
+    lockPointer() {
+      if (document.pointerLockElement !== canvas) {
+        canvas.requestPointerLock?.();
+      }
+    },
+    unlockPointer() {
+      if (document.pointerLockElement === canvas) document.exitPointerLock?.();
+    },
+    // Steering and throttle as -1..1, read straight from the held keys.
     drive() {
       return {
-        throttle: (has(FORWARD) ? 1 : 0) - (has(BACK) ? 1 : 0),
-        steer: (has(LEFT) ? 1 : 0) - (has(RIGHT) ? 1 : 0),
-        sprint: has(SPRINT),
+        throttle: (this.down('KeyW') || this.down('ArrowUp') ? 1 : 0) - (this.down('KeyS') || this.down('ArrowDown') ? 1 : 0),
+        steer: (this.down('KeyA') || this.down('ArrowLeft') ? 1 : 0) - (this.down('KeyD') || this.down('ArrowRight') ? 1 : 0),
+        handbrake: this.down('Space'),
       };
     },
-    /** Camera orbit dragged with the mouse, in pixels since the last read. */
-    takeOrbit() {
-      const orbit = { x: orbitX, y: orbitY };
-      orbitX = 0;
-      orbitY = 0;
-      return orbit;
+    walk() {
+      let x = 0;
+      let z = 0;
+      if (this.down('KeyW') || this.down('ArrowUp')) z -= 1;
+      if (this.down('KeyS') || this.down('ArrowDown')) z += 1;
+      if (this.down('KeyA') || this.down('ArrowLeft')) x -= 1;
+      if (this.down('KeyD') || this.down('ArrowRight')) x += 1;
+      const len = Math.hypot(x, z) || 1;
+      return { x: x / len, z: z / len, run: this.down('ShiftLeft') || this.down('ShiftRight') };
     },
-    isMouseDown() {
-      return mouseDown;
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
+    endFrame() { pressed.clear(); },
   };
 }

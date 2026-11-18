@@ -1,98 +1,77 @@
-// Every tuning number and colour in one place. Solmar is a sun-soaked coastal city on a
-// 40 m road grid; the playable area runs -200..200 on both axes, the beach and sea past +200 z.
-
+// SOLMAR — every tuning number in one place. The city is 800 by 800 metres,
+// roads on an 80 m grid, water along the south edge. All money is in dollars.
+/** The simulation's fixed step, in seconds: 60 updates a second. */
 export const STEP = 1 / 60;
 
-/** The city grid: roads every GRID metres, road surface ROAD_W wide, sidewalks either side. */
-export const GRID = 40;
-export const CITY_HALF = 200;
-export const ROAD_W = 10;
-export const SIDEWALK_W = 3;
+export const SOLMAR = {
+  cityHalf: 400,
+  roadGap: 80,
+  waterZ: 340,
+  step: STEP,
+  saveKey: 'solmar.save.v1',
+};
 
-export const PLAYER = {
+export const PLAYER_TUNE = {
   walkSpeed: 6,
-  sprintSpeed: 10.5,
-  radius: 0.6,
-  hp: 100,
-  punchRange: 2.2,
-  punchDamage: 25,
-  punchRate: 0.45,
+  runSpeed: 10,
+  jumpSpeed: 8,
+  gravity: 22,
+  maxHealth: 100,
+  regenDelay: 5,
+  regenRate: 12,
+  eyeHeight: 2.6,
 };
 
-export const CAR = {
+export const CAR_TUNE = {
+  maxSpeed: 34,
+  policeMaxSpeed: 31,
   accel: 16,
-  brake: 34,
-  reverseMax: 11,
-  maxSpeed: 38,
-  steerMax: 0.55,
-  grip: 0.92,
-  radius: 2.1,
-  enterRange: 4.5,
+  brake: 26,
+  reverseMax: 10,
+  steer: 1.9,
+  handbrake: 30,
+  grip: 6,
 };
 
-export const TRAFFIC_COUNT = 10;
-export const PED_COUNT = 18;
-
-export const POLICE = {
-  carSpeed: 34,
-  carRamDamage: 8,
-  footSpeed: 7.2,
-  punchDamage: 6,
-  punchRange: 1.8,
-  spawnRange: 90,
-  despawnRange: 160,
+export const WEAPONS = {
+  pistol: { name: 'Pistol', damage: 25, mag: 12, reserve: 60, rate: 0.28, range: 90, auto: false },
+  smg: { name: 'SMG', damage: 12, mag: 30, reserve: 150, rate: 0.09, range: 70, auto: true },
 };
 
-export const COMBAT = {
-  pistolRange: 42,
-  pistolDamage: 34,
-  pistolRate: 0.22,
-  rivalHp: 68,
-  copHp: 100,
-  pedHp: 50,
-  enemyShotDamage: 3,
-  enemyShotRate: 1.6,
-};
+export const RIVAL_HP = 60;
+export const TRAFFIC_COUNT = 24;
+export const PED_COUNT = 40;
 
-/** Wanted stars 0..5: heat rises with crime and cools when unseen and quiet. */
-export const WANTED = {
-  stealCar: 1,
-  hitPed: 1,
-  shoot: 0.5,
-  killCop: 1,
-  coolRate: 0.03,
-  quietSeconds: 8,
-};
-
-/** Mission rewards in dollars. */
 export const MISSIONS = [
-  { id: 'first-gear', name: 'First Gear', reward: 300 },
-  { id: 'sunset-run', name: 'Sunset Run', reward: 500 },
-  { id: 'dockside', name: 'Dockside', reward: 800 },
+  { id: 1, name: 'First Gear', reward: 300, brief: 'Curi sedan yang ditandai dari tempat parkir, lalu antar ke garasi Mara.' },
+  { id: 2, name: 'Sunset Run', reward: 500, brief: 'Antar paket ke dermaga dalam 90 detik. Jangan sampai terlambat.', timeLimit: 90 },
+  { id: 3, name: 'Dockside', reward: 800, brief: 'Kalahkan 3 anggota geng Vulture di dermaga, lalu kembali ke Mara.' },
 ];
 
-export const PALETTE = {
-  sky: '#8ec9e8',
-  sun: '#fff2cf',
-  sea: '#2e7f9e',
-  sand: '#e8d49a',
-  grass: '#7fae5a',
-  asphalt: '#3a3f46',
-  sidewalk: '#b9b3a4',
-  building: ['#f2e3c6', '#e8b48a', '#d98a6a', '#f7f3ea', '#c9a37e', '#e5cfa8', '#b8c4c9'],
-  glass: '#9fd4e8',
-  player: '#2f6fd0',
-  traffic: ['#c0392b', '#2e86c1', '#f1c40f', '#7d3c98', '#e67e22', '#95a5a6', '#16a085'],
-  police: '#f4f6f7',
-  minimapRoad: '#5a6068',
-  minimapBlock: '#2c313a',
-  text: '#f5f1e6',
-  muted: '#c9c2ae',
-  gold: '#f2c94c',
-  red: '#e5534b',
+export const PLACES = {
+  parking: { x: -200, z: 160 },
+  garage: { x: 200, z: -200 },
+  dock: { x: 0, z: 315 },
+  hospital: { x: -280, z: -280 },
+  mara: { x: 200, z: -200 },
+  start: { x: 40, z: 40 },
 };
 
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+export const SUNSET = {
+  skyTop: 0x2e4a7a,
+  skyHorizon: 0xff9a52,
+  fog: 0xe08a4e,
+  sunColor: 0xffb36b,
+  sunIntensity: 1.6,
+  hemiSky: 0x8a7bb8,
+  hemiGround: 0x3a2f28,
+};
 
-/** Save key: cash, missions done, best score (this browser only). */
-export const SAVE_KEY = 'solmar.save.v1';
+export const PALETTE = {
+  building: [0xb5a894, 0x93a7b8, 0xc4b28a, 0xa394b8, 0x8498a6, 0xcfc0a2, 0x9c8a7a, 0x74a0b5],
+  car: [0xc23b2e, 0x2e6bc2, 0xe0a92e, 0x3aa655, 0xd8d8d8, 0x222226, 0x7a4fb0, 0xe07a2e],
+  shirt: [0xe0e0e0, 0x3a7bd5, 0xe07a3a, 0x6ab04c, 0xd6457a, 0xf2c94c, 0x8e44ad, 0x2ecc71],
+  asphalt: '#4a4d52',
+  sidewalk: '#8d8578',
+  water: 0x1d5f7a,
+};
